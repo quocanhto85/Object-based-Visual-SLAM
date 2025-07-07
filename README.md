@@ -42,7 +42,7 @@ Open the code with Visual Studio Code (or other IDEs that suit your needs) and i
    pip install pandas numpy matplotlib opencv-python tabulate
    ```
 
-3. **Run the analysis**
+4. **Run the analysis**
 
  Finally, you are ready to explore the notebook. To re-run all cells, simply click the `Run All`. The analytical findings are summarised in the accompanying report         (`Object_Based_VSLAM_Data_Analysis.pdf`) included in this repository.
 
