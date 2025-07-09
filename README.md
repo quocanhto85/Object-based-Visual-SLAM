@@ -44,7 +44,7 @@ Open the code with Visual Studio Code (or other IDEs that suit your needs) and i
 
 4. **Run the analysis**
 
- Finally, you are ready to explore the notebook. To re-run all cells, simply click the `Run All`. The analytical findings are summarised in the accompanying report         (`Object_Based_VSLAM_Data_Analysis.pdf`) included in this repository.
+ Finally, you are ready to explore the notebook. To re-run all cells, simply click the `Run All`. The analytical findings are summarised in the accompanying report.
 
 ![Code](https://i.imgur.com/Cc5bq7R.png)
 
