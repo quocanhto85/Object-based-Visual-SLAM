@@ -1,0 +1,17 @@
+path: /content/drive/MyDrive/TRAINING  
+train: images/train
+val: images/val
+nc: 12
+names:                                   
+  - car              
+  - lane             
+  - traffic sign     
+  - traffic light    
+  - drivable area    
+  - person          
+  - truck            
+  - bus              
+  - bike             
+  - rider            
+  - motor           
+  - train             
