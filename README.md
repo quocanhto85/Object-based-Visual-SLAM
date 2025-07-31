@@ -96,6 +96,7 @@ After running through the entire `SLAM.ipynb` notebook, you will obtain pre-proc
 
 Once generated, zip the folders locally and upload them to your Google Drive under the TRAINING directory.
 
+````markdown
 ```text
 TRAINING/
 ├── images/
