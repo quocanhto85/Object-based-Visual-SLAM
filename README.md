@@ -90,12 +90,12 @@ Before running `VSLAM_Colab_Training.ipynb`, make sure your Google Drive directo
 
 > This structure ensures that all necessary outputs, config files, and checkpoints are properly saved and referenced during training and evaluation.
 
-> Notes on Directory Contents
+🗂️ Notes on Directory Contents
 
-`yolov8n_output/` and `yolov8s_output/`
+- `yolov8n_output/` and `yolov8s_output/`
 → These are automatically generated during training. You do not need to prepare them in advance. You may safely ignore `yolov8*_output/` when first setting up the project.
 
-`BACKUP/`
+- `BACKUP/`
 → Used to store zipped versions of datasets, YAML files, or model weights for backup purposes.
 
 ### 📦 Dataset Preparation & Google Drive Structure
