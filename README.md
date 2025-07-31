@@ -86,7 +86,7 @@ This ensures clean and standardised annotations for robust model training.
 
 Before running `VSLAM_Colab_Training.ipynb`, make sure your Google Drive directory is organised like this:
 
-![Project Structure](https://imgur.com/krVHZZs)
+![Project Structure](https://i.imgur.com/krVHZZs)
 
 > This structure ensures that all necessary outputs, config files, and checkpoints are properly saved and referenced during training and evaluation.
 
