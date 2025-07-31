@@ -86,7 +86,7 @@ This ensures clean and standardised annotations for robust model training.
 
 Before running `VSLAM_Colab_Training.ipynb`, make sure your Google Drive directory is organised like this:
 
-![Project Structure](https://i.imgur.com/krVHZZs)
+![Project Structure](https://i.imgur.com/krVHZZs.png)
 
 > This structure ensures that all necessary outputs, config files, and checkpoints are properly saved and referenced during training and evaluation.
 
@@ -96,15 +96,12 @@ After running through the entire `SLAM.ipynb` notebook, you will obtain pre-proc
 
 Once generated, zip the folders locally and upload them to your Google Drive under the TRAINING directory.
 
-TRAINING/
-├── images/
-│   ├── train/
-│   ├── val/
-│   └── val_kitti/
-└── labels/
-    ├── train/
-    ├── val/
-    └── val_kitti/
+```text TRAINING/ ├── images/ │ ├── train/ │ ├── val/ │ └── val_kitti/ └── labels/ ├── train/ ├── val/ └── val_kitti/ ``` 
+
+📌 **Instructions**: 
+- Zip the `images/` and `labels/` folders locally after generation. 
+- Upload them to your Google Drive under the `TRAINING/` directory. 
+- Extract the zip files into their respective subdirectories to match the structure above. > 🔁 **Make sure each image has a corresponding `.txt` file with the same base filename.** This ensures YOLOv8 can correctly match images with annotations during training.
 
 You must extract the zipped files inside the corresponding images/ and labels/ subdirectories as shown above.
 
