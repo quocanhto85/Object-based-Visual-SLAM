@@ -1,4 +1,3 @@
-
 ## Object-Based Visual SLAM for Urban Tram Navigation
 
 This repository contains the code, analysis, and supporting materials for the project:
@@ -22,8 +21,10 @@ The goal is to investigate how Big Data and deep learning-based object detection
   - YOLO-format conversion
   - Data augmentation and training setup
 
+  > **Note**: The `SLAM.ipynb` file is too large to display directly in the GitHub repository interface. Please download the raw file to inspect and run it locally.
+
 - `VSLAM_Colab_Training.ipynb` — Extended notebook for:
-  - Traning and Evaluating on BDD100K and KITTI
+  - Training and Evaluating on BDD100K and KITTI
 
 ## Setup Instructions
 
@@ -31,6 +32,7 @@ The goal is to investigate how Big Data and deep learning-based object detection
    ```bash
    git clone https://github.com/your-username/Object-based-Visual-SLAM.git
    cd Object-based-Visual-SLAM
+   ```
 
 2. **Download and setup datasets**
 
@@ -45,7 +47,6 @@ Subsequently, you can explore the content inside both datasets. Along with the m
 
 ![Project Structure](https://i.imgur.com/HYSjSAD.png)
 
-
 3. **Install dependencies**
 
 Open the code with Visual Studio Code (or other IDEs that suit your needs) and install these libraries via command line:
@@ -59,6 +60,8 @@ Open the code with Visual Studio Code (or other IDEs that suit your needs) and i
  Finally, you are ready to explore the notebook. To re-run all cells, simply click the `Run All`. The analytical findings are summarised in the accompanying report.
 
 ![Code](https://i.imgur.com/Cc5bq7R.png)
+
+## Implementation Workflow
 
 #### ➤ Step 1: Exploratory Data Analysis (EDA)
 Use `SLAM.ipynb` to explore and visualise both datasets. This includes:
@@ -119,7 +122,8 @@ TRAINING/
 📌 **Instructions**: 
 - Zip the `images/` and `labels/` folders locally after generation. 
 - Upload them to your Google Drive under the `TRAINING/` directory. 
-- Extract the zip files into their respective subdirectories to match the structure above. > 🔁 **Make sure each image has a corresponding `.txt` file with the same base filename.** This ensures YOLOv8 can correctly match images with annotations during training.
+- Extract the zip files into their respective subdirectories to match the structure above. 
+> 🔁 **Make sure each image has a corresponding `.txt` file with the same base filename.** This ensures YOLOv8 can correctly match images with annotations during training.
 
 You must extract the zipped files inside the corresponding images/ and labels/ subdirectories as shown above.
 
