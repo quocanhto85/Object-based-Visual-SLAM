@@ -149,9 +149,11 @@ All training outputs and visualisations are saved in the `results/` directory, i
 
 **Note**: The `results/` directory in this GitHub repository contains only selected results needed for the accompanying report, not the complete training outputs. For full inspection of all generated files, refer to the `yolov8n_output/` and `yolov8s_output/` directories mentioned in the [🗂️ Notes on Directory Contents](#🗂️-notes-on-directory-contents) section.
 
-The complete results after training will look like the structure shown in the attached image above.
+The complete results after training will look like the structure shown in the image below.
+
+![Result Structure](https://i.imgur.com/e462hea.png)
 
 Example findings:
 - `mAP50`: Evaluates if predicted box overlaps ≥ 50% with ground truth
 - `mAP50–95`: Averages mAP over IoU thresholds from 50% to 95%
-- Cross-dataset generalisation: E.g., YOLOv8 trained on BDD100K and evaluated on KITTI to assess robustness
+- Cross-dataset generalisation: E.g., YOLOv8 trained on **BDD100K** and evaluated on **KITTI** to assess robustness
