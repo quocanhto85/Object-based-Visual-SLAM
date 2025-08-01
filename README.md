@@ -19,11 +19,11 @@ The goal is to investigate how Big Data and deep learning-based object detection
   - Outlier and noise removal
   - Occlusion and truncation handling
   - YOLO-format conversion
-  - Data augmentation and training setup
 
   > **Note**: The `SLAM.ipynb` file is too large to display directly in the GitHub repository interface. Please download the raw file to inspect and run it locally.
 
 - `VSLAM_Colab_Training.ipynb` — Extended notebook for:
+  - Data augmentation and training setup
   - Training and Evaluating on BDD100K and KITTI
 
 ## Setup Instructions
@@ -122,7 +122,7 @@ TRAINING/
 📌 **Instructions**: 
 - Zip the `images/` and `labels/` folders locally after generation. 
 - Upload them to your Google Drive under the `TRAINING/` directory. 
-- Extract the zip files into their respective subdirectories to match the structure above. 
+- Extract the zip files into their respective subdirectories to match the structure above. The extraction code is already prepared in `VSLAM_Colab_Training.ipynb` - simply uncomment and run the relevant !unzip commands for the files you want to extract.
 > 🔁 **Make sure each image has a corresponding `.txt` file with the same base filename.** This ensures YOLOv8 can correctly match images with annotations during training.
 
 You must extract the zipped files inside the corresponding images/ and labels/ subdirectories as shown above.
@@ -137,6 +137,8 @@ The notebook includes:
 - Data augmentation configs (flipping, HSV jitter, cropping)
 - Model checkpoints and logs
 
+**Training Setup**: Choose GPU T4 with enhanced RAM option if you have Colab Pro. If using the free version, you may need to comment out `device=0` in the training code since it specifically targets GPU usage. Once configured, you're ready to train the model - simply click "Run All" and monitor the results after training completes.
+
 ---
 
 #### ➤ Step 4: Evaluate Performance
@@ -144,6 +146,10 @@ All training outputs and visualisations are saved in the `results/` directory, i
 - Confusion matrices
 - Validation batch prediction images
 - Quantitative scores (mAP50, mAP50–95)
+
+**Note**: The `results/` directory in this GitHub repository contains only selected results needed for the accompanying report, not the complete training outputs. For full inspection of all generated files, refer to the `yolov8n_output/` and `yolov8s_output/` directories mentioned in the [🗂️ Notes on Directory Contents](#🗂️-notes-on-directory-contents) section.
+
+The complete results after training will look like the structure shown in the attached image above.
 
 Example findings:
 - `mAP50`: Evaluates if predicted box overlaps ≥ 50% with ground truth
