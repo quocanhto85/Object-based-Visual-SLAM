@@ -1,27 +1,30 @@
 /**
-* This file is part of ORB-SLAM3
-*
-* Copyright (C) 2017-2021 Carlos Campos, Richard Elvira, Juan J. Gómez Rodríguez, José M.M. Montiel and Juan D. Tardós, University of Zaragoza.
-* Copyright (C) 2014-2016 Raúl Mur-Artal, José M.M. Montiel and Juan D. Tardós, University of Zaragoza.
-*
-* ORB-SLAM3 is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
-* License as published by the Free Software Foundation, either version 3 of the License, or
-* (at your option) any later version.
-*
-* ORB-SLAM3 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
-* the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-* GNU General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License along with ORB-SLAM3.
-* If not, see <http://www.gnu.org/licenses/>.
-*/
+ * This file is part of ORB-SLAM3
+ *
+ * Copyright (C) 2017-2021 Carlos Campos, Richard Elvira,
+ * Juan J. Gómez Rodríguez, José M.M. Montiel and Juan D. Tardós, University of Zaragoza.
+ * Copyright (C) 2014-2016 Raúl Mur-Artal, José M.M. Montiel and Juan D. Tardós, University of Zaragoza.
+ *
+ * ORB-SLAM3 is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * ORB-SLAM3 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with ORB-SLAM3. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-#include<iostream>
-#include<algorithm>
-#include<fstream>
-#include<chrono>
-#include<iomanip>
-#include<sstream> // Required for stringstream
+#include <iostream>
+#include <algorithm>
+#include <fstream>
+#include <chrono>
+#include <iomanip>
+#include <sstream> // Required for stringstream
 
 // 3D_CUBOID
 #include <nlohmann/json.hpp>
@@ -30,9 +33,9 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include<opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
 
-#include"System.h"
+#include "System.h"
 
 using namespace std;
 
@@ -42,9 +45,10 @@ void LoadImages(const string &strSequence, vector<string> &vstrImageFilenames,
 
 int main(int argc, char **argv)
 {
-    if(argc != 5) // 3D_CUBOID
+    if (argc != 5) // 3D_CUBOID
     {
-        cerr << endl << "Usage: ./mono_kitti path_to_vocabulary path_to_settings path_to_sequence path_to_cuboids" << endl;
+        cerr << endl
+             << "Usage: ./mono_kitti path_to_vocabulary path_to_settings path_to_sequence path_to_cuboids" << endl;
         return 1;
     }
 
@@ -56,210 +60,247 @@ int main(int argc, char **argv)
     int nImages = vstrImageFilenames.size();
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ORB_SLAM3::System SLAM(argv[1],argv[2],ORB_SLAM3::System::MONOCULAR,true);
+    ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::MONOCULAR, true);
     float imageScale = SLAM.GetImageScale();
 
     // 3D_CUBOID //
-    // START: Cuboid Data Pre-Loading
-    
-    // The path to cuboid JSON files is passed as argv[4]
-    string cuboids_dir = string(argv[4]);
-    
-    // --- INSERTED CODE START (replaces original Cuboid loading block) ---
+    // START: Cuboid Data Pre-Loading with Enhanced Filtering
 
-    cout << "=== Loading Cuboids ===" << endl;
+    string cuboids_dir = string(argv[4]);
+    vector<vector<ORB_SLAM3::Cuboid>> all_cuboids(nImages);
+
+    // Configuration for filtering
+    const float CONFIDENCE_THRESHOLD = 0.7f; // Increased from 0.5 to reduce FPs
+    const float MIN_DIMENSION = 0.5f;        // Minimum size (meters) to filter noise
+    const float MAX_DIMENSION = 50.0f;       // Maximum size to filter outliers
+
+    // Class-specific confidence thresholds
+    map<string, float> class_thresholds = {
+        {"car", 0.6f}, {"Car", 0.6f}, {"person", 0.7f}, {"Person", 0.7f}, {"pedestrian", 0.7f}, {"Pedestrian", 0.7f}, {"cyclist", 0.75f}, {"Cyclist", 0.75f}, {"bus", 0.8f}, {"Bus", 0.8f}, {"truck", 0.7f}, {"Truck", 0.7f}, {"traffic light", 0.8f}, {"Traffic Light", 0.8f}, {"traffic sign", 0.85f}, {"Traffic Sign", 0.85f}};
+
+    // Classes to completely ignore (too unreliable)
+    set<string> ignored_classes = {
+        "Drivable Area", "drivable area",
+        "Road", "road"};
+
+    cout << "=== Loading Cuboids with Enhanced Filtering ===" << endl;
     cout << "Cuboids directory: " << cuboids_dir << endl;
 
-    // Initialize vector to store ALL cuboids (one vector of cuboids per frame)
-    vector<vector<ORB_SLAM3::Cuboid>> all_cuboids(nImages); 
+    try
+    {
+        int total_loaded = 0;
+        int total_filtered = 0;
+        int frames_with_cuboids = 0;
 
-    int frames_with_cuboids = 0;
-    int total_cuboids_loaded = 0;
-
-    try {
-        for (int ni = 0; ni < nImages; ni++) {
+        for (int ni = 0; ni < nImages; ni++)
+        {
             stringstream ss;
-            // KITTI frames are 6-digit zero-padded (e.g., 000000.json)
-            ss << setfill('0') << setw(6) << ni; 
+            ss << setfill('0') << setw(6) << ni;
             string json_path = cuboids_dir + "/" + ss.str() + ".json";
-            
             ifstream ifs(json_path);
-            if (!ifs.good()) {
-                if (ni < 5) {  // Only show first few missing files
+
+            if (!ifs.good())
+            {
+                if (ni < 5)
+                {
                     cout << "⚠ No JSON for frame " << ni << " at " << json_path << endl;
                 }
                 continue;
             }
-            
+
             nlohmann::json j = nlohmann::json::parse(ifs);
             vector<ORB_SLAM3::Cuboid> frame_cubs;
-            
-            // Loop through each detected object in the JSON
-            for (const auto& obj : j["objects"]) {
+
+            for (const auto &obj : j["objects"])
+            {
                 ORB_SLAM3::Cuboid cub;
                 cub.class_name = obj["class"];
                 cub.class_id = obj["class_id"];
                 cub.confidence = obj["confidence"];
-                
-                // Parse center (Eigen::Vector3f)
+
+                // Skip ignored classes
+                if (ignored_classes.count(cub.class_name) > 0)
+                {
+                    total_filtered++;
+                    continue;
+                }
+
+                // Parse geometry
                 auto cen = obj["center"];
                 cub.center = Eigen::Vector3f(cen[0], cen[1], cen[2]);
-                
-                // Parse rotation (Eigen::Quaternionf: w, x, y, z)
+
                 auto rot = obj["rotation"];
                 cub.rot = Eigen::Quaternionf(rot["w"], rot["x"], rot["y"], rot["z"]);
-                
-                // Parse dimensions (Eigen::Vector3f)
+
                 auto dim = obj["dimensions"];
                 cub.dims = Eigen::Vector3f(dim[0], dim[1], dim[2]);
-                
-                // Filter by confidence threshold
-                if (cub.confidence > 0.5) {
-                    frame_cubs.push_back(cub);
+
+                // Apply class-specific confidence threshold
+                float threshold = CONFIDENCE_THRESHOLD;
+                if (class_thresholds.count(cub.class_name) > 0)
+                    threshold = class_thresholds[cub.class_name];
+
+                if (cub.confidence < threshold)
+                {
+                    total_filtered++;
+                    continue;
                 }
+
+                // Filter by dimensions
+                float max_dim = max({cub.dims[0], cub.dims[1], cub.dims[2]});
+                float min_dim = min({cub.dims[0], cub.dims[1], cub.dims[2]});
+                if (min_dim < MIN_DIMENSION || max_dim > MAX_DIMENSION)
+                {
+                    total_filtered++;
+                    continue;
+                }
+
+                // Filter by distance
+                float distance = cub.center.norm();
+                if (distance > 100.0f)
+                {
+                    total_filtered++;
+                    continue;
+                }
+
+                // Sanity check on quaternion
+                if (abs(cub.rot.norm() - 1.0f) > 0.1f)
+                {
+                    total_filtered++;
+                    continue;
+                }
+
+                frame_cubs.push_back(cub);
+                total_loaded++;
             }
-            
-            if (!frame_cubs.empty()) {
+
+            if (!frame_cubs.empty())
+            {
                 all_cuboids[ni] = frame_cubs;
                 frames_with_cuboids++;
-                total_cuboids_loaded += frame_cubs.size();
-                
-                if (ni < 10) {  // Debug first 10 frames
-                    cout << "✓ Frame " << ni << ": " << frame_cubs.size() << " cuboids" << endl;
-                }
+            }
+
+            // Debug output every 100 frames
+            if (ni % 100 == 0)
+            {
+                cout << "Frame " << ni << ": " << frame_cubs.size() << " cuboids kept" << endl;
             }
         }
-    } catch (const std::exception& e) {
+
+        cout << "=== Cuboid Loading Complete ===" << endl;
+        cout << "Frames with cuboids: " << frames_with_cuboids << "/" << nImages << endl;
+        cout << "Total cuboids loaded: " << total_loaded << endl;
+        cout << "Total filtered out: " << total_filtered << endl;
+        cout << "=================================" << endl;
+    }
+    catch (const std::exception &e)
+    {
         cerr << "Error loading JSON: " << e.what() << endl;
     }
-
-    cout << "=== Cuboid Loading Complete ===" << endl;
-    cout << "Frames with cuboids: " << frames_with_cuboids << "/" << nImages << endl;
-    cout << "Total cuboids loaded: " << total_cuboids_loaded << endl;
-    cout << "==============================" << endl;
 
     // Pass ALL cuboids to SLAM system BEFORE tracking loop
     cout << "Passing cuboids to SLAM system..." << endl;
     SLAM.SetCuboids(all_cuboids);
 
-
-    // END: Cuboid Data Pre-Loading
+    // END: Enhanced Cuboid Data Pre-Loading
     // ------------------------------------------------------------------------------------------------ //
 
     // Vector for tracking time statistics
     vector<float> vTimesTrack;
     vTimesTrack.resize(nImages);
 
-    cout << endl << "-------" << endl;
+    cout << endl
+         << "-------" << endl;
     cout << "Start processing sequence ..." << endl;
-    cout << "Images in the sequence: " << nImages << endl << endl;
+    cout << "Images in the sequence: " << nImages << endl
+         << endl;
 
-    // Main loop
 #ifdef REGISTER_TIMES
     double t_resize = 0.f;
     double t_track = 0.f;
 #endif
 
     cv::Mat im;
-    for(int ni=0; ni<nImages; ni++)
+    for (int ni = 0; ni < nImages; ni++)
     {
         // Read image from file
-        im = cv::imread(vstrImageFilenames[ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);
+        im = cv::imread(vstrImageFilenames[ni], cv::IMREAD_UNCHANGED);
         double tframe = vTimestamps[ni];
 
-        if(im.empty())
+        if (im.empty())
         {
-            cerr << endl << "Failed to load image at: " << vstrImageFilenames[ni] << endl;
+            cerr << endl
+                 << "Failed to load image at: " << vstrImageFilenames[ni] << endl;
             return 1;
         }
 
-        if(imageScale != 1.f)
+        if (imageScale != 1.f)
         {
 #ifdef REGISTER_TIMES
-    #ifdef COMPILEDWITHC11
             std::chrono::steady_clock::time_point t_Start_Resize = std::chrono::steady_clock::now();
-    #else
-            std::chrono::steady_clock::time_point t_Start_Resize = std::chrono::steady_clock::now();
-    #endif
 #endif
             int width = im.cols * imageScale;
             int height = im.rows * imageScale;
             cv::resize(im, im, cv::Size(width, height));
 #ifdef REGISTER_TIMES
-    #ifdef COMPILEDWITHC11
             std::chrono::steady_clock::time_point t_End_Resize = std::chrono::steady_clock::now();
-    #else
-            std::chrono::steady_clock::time_point t_End_Resize = std::chrono::steady_clock::now();
-    #endif
-            t_resize = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(t_End_Resize - t_Start_Resize).count();
+            t_resize = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(t_End_Resize - t_Start_Resize).count();
             SLAM.InsertResizeTime(t_resize);
 #endif
         }
 
-        // Declare t1 and t2 outside of ifdef blocks so they're always available
-#ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-#else
-        std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-#endif
-
-        // 3D_CUBOID //
-        // START: Cuboid Data Per-Frame Update
-        // ORIGINAL CODE REMOVED: Cuboids are now set once before the loop.
-        // if (ni < all_cuboids.size()) {
-        //     // Wrap single frame's cuboids to match expected signature
-        //     vector<vector<ORB_SLAM3::Cuboid>> single_frame_wrapper;
-        //     single_frame_wrapper.push_back(all_cuboids[ni]);
-        //     SLAM.SetCuboids(single_frame_wrapper);
-        // }
-        // END: Cuboid Data Per-Frame Update
-        // ------------------------------------------------------------------------------------------------ //
 
         // Pass the image to the SLAM system
-        SLAM.TrackMonocular(im,tframe,vector<ORB_SLAM3::IMU::Point>(), vstrImageFilenames[ni]);
+        SLAM.TrackMonocular(im, tframe, vector<ORB_SLAM3::IMU::Point>(), vstrImageFilenames[ni]);
 
-#ifdef COMPILEDWITHC11
+        // --- Scale correction block (every 100 frames) ---
+        // if (ni % 100 == 0) // Adjust interval as needed
+        // {
+        //     // If you have GPS or ground truth scale
+        //     float true_scale = GetGroundTruthScale(ni);
+        //     SLAM.CorrectScale(true_scale);
+        // }
+
         std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-#else
-        std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-#endif
 
 #ifdef REGISTER_TIMES
-        t_track = t_resize + std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(t2 - t1).count();
+        t_track = t_resize + std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(t2 - t1).count();
         SLAM.InsertTrackTime(t_track);
 #endif
 
-        double ttrack = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+        double ttrack = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count();
+        vTimesTrack[ni] = ttrack;
 
-        vTimesTrack[ni]=ttrack;
+        double T = 0;
+        if (ni < nImages - 1)
+            T = vTimestamps[ni + 1] - tframe;
+        else if (ni > 0)
+            T = tframe - vTimestamps[ni - 1];
 
-        // Wait to load the next frame
-        double T=0;
-        if(ni<nImages-1)
-            T = vTimestamps[ni+1]-tframe;
-        else if(ni>0)
-            T = tframe-vTimestamps[ni-1];
-
-        if(ttrack<T)
-            usleep((T-ttrack)*1e6);
+        if (ttrack < T)
+            usleep((T - ttrack) * 1e6);
     }
 
     // Stop all threads
     SLAM.Shutdown();
+    // SLAM.SmoothTrajectory();   // Apply moving average filter
+    // SLAM.OptimizeTrajectory(); // Global optimization
 
     // Tracking time statistics
-    sort(vTimesTrack.begin(),vTimesTrack.end());
+    sort(vTimesTrack.begin(), vTimesTrack.end());
     float totaltime = 0;
-    for(int ni=0; ni<nImages; ni++)
-    {
-        totaltime+=vTimesTrack[ni];
-    }
-    cout << "-------" << endl << endl;
-    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
-    cout << "mean tracking time: " << totaltime/nImages << endl;
+    for (int ni = 0; ni < nImages; ni++)
+        totaltime += vTimesTrack[ni];
+
+    cout << "-------" << endl
+         << endl;
+    cout << "median tracking time: " << vTimesTrack[nImages / 2] << endl;
+    cout << "mean tracking time: " << totaltime / nImages << endl;
 
     // Save camera trajectory
-    SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");    
+    // SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+    SLAM.SaveKeyFrameTrajectoryKITTI("KeyFrameTrajectory.txt");
 
     return 0;
 }
@@ -269,11 +310,11 @@ void LoadImages(const string &strPathToSequence, vector<string> &vstrImageFilena
     ifstream fTimes;
     string strPathTimeFile = strPathToSequence + "/times.txt";
     fTimes.open(strPathTimeFile.c_str());
-    while(!fTimes.eof())
+    while (!fTimes.eof())
     {
         string s;
-        getline(fTimes,s);
-        if(!s.empty())
+        getline(fTimes, s);
+        if (!s.empty())
         {
             stringstream ss;
             ss << s;
@@ -288,7 +329,7 @@ void LoadImages(const string &strPathToSequence, vector<string> &vstrImageFilena
     const int nTimes = vTimestamps.size();
     vstrImageFilenames.resize(nTimes);
 
-    for(int i=0; i<nTimes; i++)
+    for (int i = 0; i < nTimes; i++)
     {
         stringstream ss;
         ss << setfill('0') << setw(6) << i;
