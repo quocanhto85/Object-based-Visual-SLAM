@@ -1,31 +1,103 @@
 %YAML:1.0
 
-# Camera model and parameters
+#--------------------------------------------------------------------------------------------
+# Camera Parameters (KITTI Odometry Dataset)
+#--------------------------------------------------------------------------------------------
 Camera.type: "PinHole"
-Camera.fx: 707.09
-Camera.fy: 707.09
-Camera.cx: 601.89
-Camera.cy: 183.11
+
+# Calibration from KITTI 
+Camera.fx: 718.856
+Camera.fy: 718.856
+Camera.cx: 607.1928
+Camera.cy: 185.2157
+
+# No distortion in KITTI
 Camera.k1: 0.0
 Camera.k2: 0.0
 Camera.p1: 0.0
 Camera.p2: 0.0
+
 Camera.width: 1241
 Camera.height: 376
-Camera.fps: 10.0          # KITTI data is 10 Hz
-Camera.bf: 0.0           # (Monocular, no stereo baseline)
+Camera.fps: 10.0
 
-# Depth threshold (not used for monocular)
-ThDepth: 35.0            
+# Stereo baseline (not used in monocular but kept for compatibility)
+Camera.bf: 386.1448
 
-# ORB feature parameters
-ORBextractor.nFeatures: 2000
-ORBextractor.scaleFactor: 1.2
-ORBextractor.nLevels: 8
-ORBextractor.iniThFAST: 20
-ORBextractor.minThFAST: 7
+# Color order (0: BGR, 1: RGB)
+Camera.RGB: 1
 
-# Viewer Parameters (required by ORB-SLAM3)
+# Close/Far threshold
+ThDepth: 40
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters - OPTIMIZED FOR ACCURACY
+#--------------------------------------------------------------------------------------------
+
+# Increase features for better tracking (was 2000)
+ORBextractor.nFeatures: 3000
+
+# Smaller scale factor for finer scale detection (was 1.2)
+ORBextractor.scaleFactor: 1.15
+
+# More pyramid levels for better scale invariance (was 8)
+ORBextractor.nLevels: 10
+
+# Lower thresholds for more features in low-texture areas
+ORBextractor.iniThFAST: 15
+ORBextractor.minThFAST: 5
+
+#--------------------------------------------------------------------------------------------
+# Tracking Parameters - NEW SECTION
+#--------------------------------------------------------------------------------------------
+
+# Minimum frames between keyframes
+MinFrames: 0
+
+# Maximum frames between keyframes (force new KF)
+MaxFrames: 30
+
+# Track quality thresholds
+TrackingQuality.minInliers: 100
+TrackingQuality.minTrackedClose: 100
+TrackingQuality.minTrackedFar: 70
+
+#--------------------------------------------------------------------------------------------
+# Local Mapping Parameters - NEW SECTION
+#--------------------------------------------------------------------------------------------
+
+# Number of keyframes in local window
+LocalMapping.WindowSize: 20
+
+# Redundant keyframe culling threshold
+LocalMapping.RedundantThreshold: 0.95
+
+#--------------------------------------------------------------------------------------------
+# Loop Closing Parameters - ENABLE LOOP CLOSURE
+#--------------------------------------------------------------------------------------------
+
+# Enable loop closing (helps reduce drift)
+LoopClosing.Enabled: 1
+
+# Minimum score for loop acceptance
+LoopClosing.minScore: 0.25
+
+# Consistency threshold
+LoopClosing.ConsistencyThreshold: 3
+
+#--------------------------------------------------------------------------------------------
+# Bundle Adjustment Parameters
+#--------------------------------------------------------------------------------------------
+
+# Enable global bundle adjustment
+BA.EnableGlobal: 1
+
+# Local BA window size
+BA.LocalWindow: 10
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
 Viewer.KeyFrameSize: 0.05
 Viewer.KeyFrameLineWidth: 1
 Viewer.GraphLineWidth: 0.9
@@ -37,6 +109,26 @@ Viewer.ViewpointY: -0.7
 Viewer.ViewpointZ: -1.8
 Viewer.ViewpointF: 500
 
-# Output
-OutputCameraTrajectoryFile: CameraTrajectory.txt
-OutputKeyFrameTrajectoryFile: KeyFrameTrajectory.txt
+#--------------------------------------------------------------------------------------------
+# System Parameters
+#--------------------------------------------------------------------------------------------
+
+# Use motion model for prediction
+UseMotionModel: 1
+
+# Check for large movements
+CheckLargeMovement: 1
+
+# Reset if tracking is lost
+AutoReset: 1
+
+#--------------------------------------------------------------------------------------------
+# Save Trajectories
+#--------------------------------------------------------------------------------------------
+System.SaveAtlasToFile: "KITTI08_atlas"
+System.LoadAtlasFromFile: ""
+
+# Output files
+SaveTrajectoryTUM: 1
+SaveKeyFrameTrajectoryTUM: 1
+SaveTrajectoryKITTI: 1

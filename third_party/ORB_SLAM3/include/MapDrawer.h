@@ -28,6 +28,7 @@
 #include<pangolin/pangolin.h>
 
 #include<mutex>
+#include<map>
 
 namespace ORB_SLAM3
 {
@@ -53,9 +54,16 @@ public:
     // 3D_CUBOID
     void SetCurrentFrameId(unsigned long id);
     unsigned long GetCurrentFrameId() const;
-    void SetCuboids(const std::vector<std::vector<ORB_SLAM3::Cuboid>>& cuboids);
+    
+    // New map-based methods (recommended)
+    void SetCuboidsForFrame(unsigned long frameId, const std::vector<ORB_SLAM3::Cuboid>& cuboids);
     void DrawCuboids();
-    void SetCurrentFrameIndex(int idx) { mCurrentFrameIdx = idx; }
+    void DrawAllCuboids();
+    void ClearOldCuboids(int keepLastNFrames = 30);
+    
+    // Backward compatibility methods (deprecated, but maintained for existing code)
+    void SetCurrentFrameIndex(int idx) { SetCurrentFrameId(static_cast<unsigned long>(idx)); }
+    void SetCuboids(const std::vector<std::vector<ORB_SLAM3::Cuboid>>& cuboids);
 
 private:
 
@@ -83,9 +91,9 @@ private:
                                 {1.0f, 1.0f, 0.0f},
                                 {0.0f, 1.0f, 1.0f}};
 
-    std::vector<std::vector<ORB_SLAM3::Cuboid>> mCuboids;
-    int mCurrentFrameIdx;
+    std::map<unsigned long, std::vector<ORB_SLAM3::Cuboid>> mCuboidMap;
     std::mutex mMutexCuboids;
+    static const int MAX_STORED_CUBOID_FRAMES = 30;
 
 };
 
