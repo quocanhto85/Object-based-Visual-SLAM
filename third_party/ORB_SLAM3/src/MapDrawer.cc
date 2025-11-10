@@ -191,9 +191,8 @@ namespace ORB_SLAM3
         glEnd();
 
         // --- INSERTED CODE: Draw Cuboids ---
-        // DrawCuboids(); // COMMENTED OUT - causes chaotic lines
-        // DrawMapPoints();
-        DrawAllCuboids();
+        DrawCuboids();
+        // DrawAllCuboids();
         // -----------------------------------
     }
 
@@ -568,194 +567,194 @@ void MapDrawer::ClearOldCuboids(int keepLastNFrames)
     std::cout << "Cleared old cuboids. Now storing " << mCuboidMap.size() << " frames." << std::endl;
 }
 
-// void MapDrawer::DrawCuboids()
-// {
-//     unique_lock<mutex> lock(mMutexCuboids);
+void MapDrawer::DrawCuboids()
+{
+    unique_lock<mutex> lock(mMutexCuboids);
     
-//     if(mCuboidMap.empty())
-//         return;
+    if(mCuboidMap.empty())
+        return;
     
-//     const unsigned long currentFrameId = GetCurrentFrameId();
+    const unsigned long currentFrameId = GetCurrentFrameId();
     
-//     // Try to find cuboids for the current frame
-//     auto it = mCuboidMap.find(currentFrameId);
+    // Try to find cuboids for the current frame
+    auto it = mCuboidMap.find(currentFrameId);
     
-//     // If not found, use the most recent frame
-//     if(it == mCuboidMap.end())
-//     {
-//         if(mCuboidMap.empty())
-//             return;
+    // If not found, use the most recent frame
+    if(it == mCuboidMap.end())
+    {
+        if(mCuboidMap.empty())
+            return;
         
-//         // Get the most recent frame (last element in map)
-//         it = std::prev(mCuboidMap.end());
+        // Get the most recent frame (last element in map)
+        it = std::prev(mCuboidMap.end());
         
-//         // Debug output
-//         static int missCount = 0;
-//         if(missCount++ % 30 == 0)
-//         {
-//             std::cout << "DrawCuboids: Frame " << currentFrameId << " not in map. "
-//                       << "Using frame " << it->first << " instead. "
-//                       << "Map size: " << mCuboidMap.size() << std::endl;
-//         }
-//     }
-//     else
-//     {
-//         // Debug output when frame is found
-//         static int hitCount = 0;
-//         if(hitCount++ % 30 == 0)
-//         {
-//             std::cout << "DrawCuboids: Drawing frame " << currentFrameId 
-//                       << " with " << it->second.size() << " cuboids. "
-//                       << "Map size: " << mCuboidMap.size() << std::endl;
-//         }
-//     }
+        // Debug output
+        static int missCount = 0;
+        if(missCount++ % 30 == 0)
+        {
+            std::cout << "DrawCuboids: Frame " << currentFrameId << " not in map. "
+                      << "Using frame " << it->first << " instead. "
+                      << "Map size: " << mCuboidMap.size() << std::endl;
+        }
+    }
+    else
+    {
+        // Debug output when frame is found
+        static int hitCount = 0;
+        if(hitCount++ % 30 == 0)
+        {
+            std::cout << "DrawCuboids: Drawing frame " << currentFrameId 
+                      << " with " << it->second.size() << " cuboids. "
+                      << "Map size: " << mCuboidMap.size() << std::endl;
+        }
+    }
     
-//     const vector<ORB_SLAM3::Cuboid>& frameCuboids = it->second;
+    const vector<ORB_SLAM3::Cuboid>& frameCuboids = it->second;
     
-//     // Skip if no cuboids
-//     if(frameCuboids.empty())
-//         return;
+    // Skip if no cuboids
+    if(frameCuboids.empty())
+        return;
     
-//     // Safety check to prevent drawing too many cuboids
-//     if(frameCuboids.size() > 50)
-//     {
-//         std::cerr << "WARNING: Too many cuboids (" << frameCuboids.size() 
-//                   << ") in frame " << it->first << ". Skipping draw." << std::endl;
-//         return;
-//     }
+    // Safety check to prevent drawing too many cuboids
+    if(frameCuboids.size() > 50)
+    {
+        std::cerr << "WARNING: Too many cuboids (" << frameCuboids.size() 
+                  << ") in frame " << it->first << ". Skipping draw." << std::endl;
+        return;
+    }
     
-//     glLineWidth(3.0f);
-//     glEnable(GL_BLEND);
-//     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glLineWidth(3.0f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
-//     float alpha = 1.0f;
+    float alpha = 1.0f;
     
-//     for(const auto& cuboid : frameCuboids)
-//     {
-//         // Skip low confidence detections
-//         if(cuboid.confidence < 0.5)
-//             continue;
+    for(const auto& cuboid : frameCuboids)
+    {
+        // Skip low confidence detections
+        if(cuboid.confidence < 0.5)
+            continue;
         
-//         // Set color based on class
-//         if(cuboid.class_name == "Car" || cuboid.class_name == "car")
-//         {
-//             glColor4f(1.0f, 0.0f, 0.0f, alpha); // Red
-//         }
-//         else if(cuboid.class_name == "Cyclist" || cuboid.class_name == "cyclist")
-//         {
-//             glColor4f(0.0f, 1.0f, 0.0f, alpha); // Green
-//         }
-//         else if(cuboid.class_name == "Pedestrian" || cuboid.class_name == "pedestrian" ||
-//                 cuboid.class_name == "Person" || cuboid.class_name == "person")
-//         {
-//             glColor4f(0.0f, 0.0f, 1.0f, alpha); // Blue
-//         }
-//         else if(cuboid.class_name == "Van" || cuboid.class_name == "van")
-//         {
-//             glColor4f(1.0f, 0.5f, 0.0f, alpha); // Orange
-//         }
-//         else if(cuboid.class_name == "Truck" || cuboid.class_name == "truck")
-//         {
-//             glColor4f(0.5f, 0.0f, 0.5f, alpha); // Purple
-//         }
-//         else if(cuboid.class_name == "Bike" || cuboid.class_name == "bike" ||
-//                 cuboid.class_name == "Bicycle" || cuboid.class_name == "bicycle")
-//         {
-//             glColor4f(0.0f, 1.0f, 1.0f, alpha); // Cyan
-//         }
-//         else if(cuboid.class_name == "Traffic Light" || cuboid.class_name == "traffic light")
-//         {
-//             glColor4f(1.0f, 1.0f, 0.0f, alpha); // Yellow
-//         }
-//         else if(cuboid.class_name == "Traffic Sign" || cuboid.class_name == "traffic sign")
-//         {
-//             glColor4f(1.0f, 0.5f, 1.0f, alpha); // Magenta
-//         }
-//         else
-//         {
-//             glColor4f(0.7f, 0.7f, 0.7f, alpha); // Gray for others
-//         }
+        // Set color based on class
+        if(cuboid.class_name == "Car" || cuboid.class_name == "car")
+        {
+            glColor4f(1.0f, 0.0f, 0.0f, alpha); // Red
+        }
+        else if(cuboid.class_name == "Cyclist" || cuboid.class_name == "cyclist")
+        {
+            glColor4f(0.0f, 1.0f, 0.0f, alpha); // Green
+        }
+        else if(cuboid.class_name == "Pedestrian" || cuboid.class_name == "pedestrian" ||
+                cuboid.class_name == "Person" || cuboid.class_name == "person")
+        {
+            glColor4f(0.0f, 0.0f, 1.0f, alpha); // Blue
+        }
+        else if(cuboid.class_name == "Van" || cuboid.class_name == "van")
+        {
+            glColor4f(1.0f, 0.5f, 0.0f, alpha); // Orange
+        }
+        else if(cuboid.class_name == "Truck" || cuboid.class_name == "truck")
+        {
+            glColor4f(0.5f, 0.0f, 0.5f, alpha); // Purple
+        }
+        else if(cuboid.class_name == "Bike" || cuboid.class_name == "bike" ||
+                cuboid.class_name == "Bicycle" || cuboid.class_name == "bicycle")
+        {
+            glColor4f(0.0f, 1.0f, 1.0f, alpha); // Cyan
+        }
+        else if(cuboid.class_name == "Traffic Light" || cuboid.class_name == "traffic light")
+        {
+            glColor4f(1.0f, 1.0f, 0.0f, alpha); // Yellow
+        }
+        else if(cuboid.class_name == "Traffic Sign" || cuboid.class_name == "traffic sign")
+        {
+            glColor4f(1.0f, 0.5f, 1.0f, alpha); // Magenta
+        }
+        else
+        {
+            glColor4f(0.7f, 0.7f, 0.7f, alpha); // Gray for others
+        }
         
-//         // Get cuboid parameters
-//         Eigen::Vector3f center = cuboid.center;
-//         Eigen::Vector3f dims = cuboid.dims;
-//         Eigen::Quaternionf rotation = cuboid.rot;
+        // Get cuboid parameters
+        Eigen::Vector3f center = cuboid.center;
+        Eigen::Vector3f dims = cuboid.dims;
+        Eigen::Quaternionf rotation = cuboid.rot;
         
-//         // Create 8 corners of the cuboid in local coordinates
-//         Eigen::Vector3f corners[8];
-//         corners[0] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2, -dims[2]/2);
-//         corners[1] = Eigen::Vector3f( dims[0]/2, -dims[1]/2, -dims[2]/2);
-//         corners[2] = Eigen::Vector3f( dims[0]/2,  dims[1]/2, -dims[2]/2);
-//         corners[3] = Eigen::Vector3f(-dims[0]/2,  dims[1]/2, -dims[2]/2);
-//         corners[4] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2,  dims[2]/2);
-//         corners[5] = Eigen::Vector3f( dims[0]/2, -dims[1]/2,  dims[2]/2);
-//         corners[6] = Eigen::Vector3f( dims[0]/2,  dims[1]/2,  dims[2]/2);
-//         corners[7] = Eigen::Vector3f(-dims[0]/2,  dims[1]/2,  dims[2]/2);
+        // Create 8 corners of the cuboid in local coordinates
+        Eigen::Vector3f corners[8];
+        corners[0] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2, -dims[2]/2);
+        corners[1] = Eigen::Vector3f( dims[0]/2, -dims[1]/2, -dims[2]/2);
+        corners[2] = Eigen::Vector3f( dims[0]/2,  dims[1]/2, -dims[2]/2);
+        corners[3] = Eigen::Vector3f(-dims[0]/2,  dims[1]/2, -dims[2]/2);
+        corners[4] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2,  dims[2]/2);
+        corners[5] = Eigen::Vector3f( dims[0]/2, -dims[1]/2,  dims[2]/2);
+        corners[6] = Eigen::Vector3f( dims[0]/2,  dims[1]/2,  dims[2]/2);
+        corners[7] = Eigen::Vector3f(-dims[0]/2,  dims[1]/2,  dims[2]/2);
         
-//         // Transform corners to world coordinates
-//         for(int i = 0; i < 8; i++)
-//         {
-//             corners[i] = rotation * corners[i] + center;
-//         }
+        // Transform corners to world coordinates
+        for(int i = 0; i < 8; i++)
+        {
+            corners[i] = rotation * corners[i] + center;
+        }
         
-//         // Draw cuboid wireframe
-//         glBegin(GL_LINES);
+        // Draw cuboid wireframe
+        glBegin(GL_LINES);
         
-//         // Bottom face
-//         glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
-//         glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
+        // Bottom face
+        glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
+        glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
         
-//         glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
-//         glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
+        glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
+        glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
         
-//         glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
-//         glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
+        glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
+        glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
         
-//         glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
-//         glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
+        glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
+        glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
         
-//         // Top face
-//         glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
-//         glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
+        // Top face
+        glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
+        glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
         
-//         glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
-//         glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
+        glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
+        glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
         
-//         glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
-//         glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
+        glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
+        glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
         
-//         glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
-//         glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
+        glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
+        glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
         
-//         // Vertical edges
-//         glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
-//         glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
+        // Vertical edges
+        glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
+        glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
         
-//         glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
-//         glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
+        glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
+        glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
         
-//         glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
-//         glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
+        glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
+        glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
         
-//         glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
-//         glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
+        glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
+        glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
         
-//         glEnd();
+        glEnd();
         
-//         // Draw diagonal lines on front face for better visibility
-//         glLineWidth(1.5f);
-//         glBegin(GL_LINES);
-//         glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
-//         glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
-//         glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
-//         glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
-//         glEnd();
-//         glLineWidth(3.0f);
-//     }
+        // Draw diagonal lines on front face for better visibility
+        glLineWidth(1.5f);
+        glBegin(GL_LINES);
+        glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
+        glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
+        glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
+        glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
+        glEnd();
+        glLineWidth(3.0f);
+    }
     
-//     glDisable(GL_BLEND);
-//     glLineWidth(1.0f);
-// }
+    glDisable(GL_BLEND);
+    glLineWidth(1.0f);
+}
 
 void MapDrawer::DrawAllCuboids()
 {
