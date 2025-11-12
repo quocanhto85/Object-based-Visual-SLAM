@@ -224,7 +224,8 @@ int main(int argc, char **argv)
     for (int ni = 0; ni < nImages; ni++)
     {
         // Read image from file
-        im = cv::imread(vstrImageFilenames[ni], cv::IMREAD_UNCHANGED);
+        // im = cv::imread(vstrImageFilenames[ni], cv::IMREAD_UNCHANGED);
+        cv::Mat im = cv::imread(vstrImageFilenames[ni], cv::IMREAD_COLOR);
         double tframe = vTimestamps[ni];
 
         if (im.empty())
