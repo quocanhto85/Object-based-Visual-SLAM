@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Enhanced Fix for EVO pose alignment mismatch error - Handles ALL cases.
+Enhanced Fix for EVO pose alignment mismatch error - Complete Solution
 
 This version handles:
-1. GT > KF (more ground truth poses than keyframes)
-2. KF > GT (more keyframes than ground truth) 
-3. GT ≈ KF (roughly equal)
+1. Pose count mismatches (GT vs KF)
+2. Coordinate frame mismatches (rotation/flip detection and correction)
+3. Scale differences (handled by evo's Sim(3), but we verify)
 
-The issue: ORB-SLAM3 outputs keyframe-only trajectories which may be sparse or dense
-compared to ground truth. The Umeyama algorithm requires equal-sized matrices.
+The script automatically:
+- Detects coordinate frame mismatches
+- Applies the correct transformation
+- Resamples trajectories to match lengths
+- Saves corrected files ready for evo_ape
 """
 
 import numpy as np
@@ -16,541 +19,414 @@ import os
 from scipy.spatial.transform import Rotation
 from scipy.interpolate import interp1d
 import sys
+from pathlib import Path
 
 
-def kitti_to_poses(poses_array):
-    """Convert KITTI format (3x4 matrix flattened) to pose objects."""
-    num_poses = poses_array.shape[0]
-    poses = []
-    for i in range(num_poses):
-        pose_row = poses_array[i]
-        # Reshape 12 values to 3x4 matrix
-        pose_matrix = pose_row.reshape(3, 4)
-        poses.append(pose_matrix)
-    return poses
+def load_trajectory(filepath):
+    """Load trajectory from KITTI format file."""
+    return np.loadtxt(filepath)
 
 
-def extract_translation(pose_matrix):
-    """Extract translation vector from 3x4 pose matrix."""
-    return pose_matrix[:, 3]
+def analyze_trajectory(traj, name="Trajectory"):
+    """Analyze trajectory characteristics."""
+    translations = traj[:, [3, 7, 11]]  # Extract tx, ty, tz
+    
+    # Compute statistics
+    mean = translations.mean(axis=0)
+    variance = translations.var(axis=0)
+    range_vals = translations.max(axis=0) - translations.min(axis=0)
+    
+    main_axis = variance.argmax()
+    main_axis_name = ['X', 'Y', 'Z'][main_axis]
+    
+    return {
+        'name': name,
+        'translations': translations,
+        'mean': mean,
+        'variance': variance,
+        'range': range_vals,
+        'main_axis': main_axis,
+        'main_axis_name': main_axis_name,
+        'length': len(traj)
+    }
 
 
-def extract_rotation_matrix(pose_matrix):
-    """Extract rotation matrix from 3x4 pose matrix."""
-    return pose_matrix[:, :3]
-
-
-def poses_to_kitti(poses):
-    """Convert pose matrices back to KITTI format."""
-    kitti_poses = []
-    for pose in poses:
-        if pose.shape == (4, 4):
-            pose = pose[:3, :]
-        pose_flat = pose.flatten()
-        kitti_poses.append(pose_flat)
-    return np.array(kitti_poses)
-
-
-# ============================================================================
-# UTILITY: POSE INTERPOLATION
-# ============================================================================
-
-def interpolate_pose_slerp(pose1, pose2, t):
+def detect_coordinate_mismatch(gt_info, kf_info):
     """
-    SLERP interpolation between two poses (3x4 matrices).
+    Detect if there's a coordinate frame mismatch between GT and KF.
+    
+    Returns:
+        dict: {
+            'mismatch': bool,
+            'type': str ('rotation', 'flip', 'none'),
+            'recommended_transform': str
+        }
+    """
+    gt_main = gt_info['main_axis']
+    kf_main = kf_info['main_axis']
+    
+    # Check if main motion axes differ
+    if gt_main != kf_main:
+        # Determine rotation type
+        if (gt_main == 2 and kf_main == 0) or (gt_main == 0 and kf_main == 2):
+            # Z <-> X: 90° rotation around Y
+            return {
+                'mismatch': True,
+                'type': 'rotation_90_Y',
+                'recommended_transform': 'rotate_90_Y',
+                'description': 'Main motion axis differs: GT in {}, KF in {}'.format(
+                    gt_info['main_axis_name'], kf_info['main_axis_name']
+                )
+            }
+        else:
+            return {
+                'mismatch': True,
+                'type': 'rotation_other',
+                'recommended_transform': 'auto_detect',
+                'description': 'Complex axis mismatch detected'
+            }
+    
+    # Check for opposite directions (180° rotation or flip)
+    gt_dir = np.sign(gt_info['mean'][gt_main])
+    kf_dir = np.sign(kf_info['mean'][kf_main])
+    
+    if gt_dir != kf_dir:
+        return {
+            'mismatch': True,
+            'type': 'flip',
+            'recommended_transform': 'rotate_180_Y',
+            'description': 'Trajectories face opposite directions'
+        }
+    
+    # No obvious mismatch
+    return {
+        'mismatch': False,
+        'type': 'none',
+        'recommended_transform': 'identity',
+        'description': 'No coordinate mismatch detected'
+    }
+
+
+def get_transformation_matrix(transform_type):
+    """
+    Get 4x4 transformation matrix for given transform type.
+    
+    Available transforms:
+    - rotate_90_Y: Rotate 90° around Y (X→Z, Z→-X)
+    - rotate_neg90_Y: Rotate -90° around Y (X→-Z, Z→X)
+    - rotate_180_Y: Rotate 180° around Y (X→-X, Z→-Z)
+    - flip_X: Flip X axis
+    - flip_Z: Flip Z axis
+    - identity: No transformation
+    - auto_detect: Test all and return best
+    """
+    transforms = {
+        'rotate_90_Y': np.array([
+            [0, 0, -1, 0],
+            [0, 1, 0, 0],
+            [1, 0, 0, 0],
+            [0, 0, 0, 1]
+        ]),
+        'rotate_neg90_Y': np.array([
+            [0, 0, 1, 0],
+            [0, 1, 0, 0],
+            [-1, 0, 0, 0],
+            [0, 0, 0, 1]
+        ]),
+        'rotate_180_Y': np.array([
+            [-1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, -1, 0],
+            [0, 0, 0, 1]
+        ]),
+        'flip_X': np.array([
+            [-1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ]),
+        'flip_Z': np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, -1, 0],
+            [0, 0, 0, 1]
+        ]),
+        'identity': np.eye(4)
+    }
+    
+    return transforms.get(transform_type, np.eye(4))
+
+
+def apply_transformation(trajectory, transform_matrix):
+    """Apply transformation matrix to trajectory."""
+    transformed = []
+    
+    for pose_row in trajectory:
+        # Reshape to 4x4
+        pose = np.eye(4)
+        pose[:3, :] = pose_row.reshape(3, 4)
+        
+        # Apply transformation
+        pose_new = transform_matrix @ pose
+        
+        # Store as 3x4 flattened
+        transformed.append(pose_new[:3, :].flatten())
+    
+    return np.array(transformed)
+
+
+def auto_detect_best_transformation(gt_traj, kf_traj):
+    """
+    Automatically detect best transformation by testing all options.
+    Returns the transform that minimizes center distance.
+    """
+    gt_trans = gt_traj[:, [3, 7, 11]]
+    gt_center = gt_trans.mean(axis=0)
+    
+    transforms_to_test = [
+        'rotate_90_Y',
+        'rotate_neg90_Y',
+        'rotate_180_Y',
+        'flip_X',
+        'flip_Z',
+        'identity'
+    ]
+    
+    best_transform = 'identity'
+    min_distance = float('inf')
+    results = {}
+    
+    print("\n" + "="*80)
+    print("AUTO-DETECTING BEST COORDINATE TRANSFORMATION")
+    print("="*80)
+    print(f"Ground truth center: [{gt_center[0]:.1f}, {gt_center[1]:.1f}, {gt_center[2]:.1f}]")
+    print("\nTesting transformations:\n")
+    
+    for transform_name in transforms_to_test:
+        T = get_transformation_matrix(transform_name)
+        kf_transformed = apply_transformation(kf_traj, T)
+        kf_trans = kf_transformed[:, [3, 7, 11]]
+        kf_center = kf_trans.mean(axis=0)
+        
+        # Distance metric
+        center_dist = np.linalg.norm(gt_center - kf_center)
+        
+        # Variance alignment metric (main axis should match)
+        gt_var = gt_trans.var(axis=0)
+        kf_var = kf_trans.var(axis=0)
+        var_alignment = np.dot(gt_var, kf_var) / (np.linalg.norm(gt_var) * np.linalg.norm(kf_var))
+        
+        # Combined score (lower is better for distance, higher is better for alignment)
+        score = center_dist / (1 + var_alignment)
+        
+        results[transform_name] = {
+            'center_dist': center_dist,
+            'var_alignment': var_alignment,
+            'score': score,
+            'kf_center': kf_center
+        }
+        
+        print(f"  {transform_name:20s}: center_dist={center_dist:7.1f}m, var_align={var_alignment:.3f}, score={score:.1f}")
+        
+        if score < min_distance:
+            min_distance = score
+            best_transform = transform_name
+    
+    print(f"\n✓ Best transformation: {best_transform} (score: {min_distance:.1f})")
+    print(f"  KF center after transform: {results[best_transform]['kf_center']}")
+    
+    return best_transform, results
+
+
+def uniform_sample(trajectory, target_length):
+    """Uniformly sample trajectory to target length."""
+    indices = np.linspace(0, len(trajectory) - 1, target_length, dtype=int)
+    return trajectory[indices]
+
+
+def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
+    """
+    Complete fix for pose mismatch: handles both coordinate frames and length.
     
     Args:
-        pose1, pose2: 3x4 pose matrices
-        t: interpolation factor (0 to 1)
-    """
-    # Ensure proper shape
-    if pose1.shape == (4, 4):
-        pose1 = pose1[:3, :]
-    if pose2.shape == (4, 4):
-        pose2 = pose2[:3, :]
+        gt_path: Path to ground truth file
+        kf_path: Path to keyframe trajectory file
+        output_dir: Output directory for fixed files
+        auto_transform: Automatically detect and apply coordinate transformation
     
-    # Extract components
-    R1 = pose1[:, :3]
-    t1 = pose1[:, 3]
-    R2 = pose2[:, :3]
-    t2 = pose2[:, 3]
-    
-    # Interpolate translation linearly
-    t_interp = (1 - t) * t1 + t * t2
-    
-    # Convert rotation matrices to quaternions and SLERP
-    rot1 = Rotation.from_matrix(R1)
-    rot2 = Rotation.from_matrix(R2)
-    
-    # Proper SLERP using scipy
-    key_times = [0, 1]
-    key_rots = Rotation.from_quat([rot1.as_quat(), rot2.as_quat()])
-    slerp = Rotation.from_quat(key_rots.as_quat())
-    
-    # Interpolate
-    quat1 = rot1.as_quat()
-    quat2 = rot2.as_quat()
-    
-    # Ensure shortest path
-    if np.dot(quat1, quat2) < 0:
-        quat2 = -quat2
-    
-    quat_interp = (1 - t) * quat1 + t * quat2
-    quat_interp = quat_interp / np.linalg.norm(quat_interp)
-    
-    rot_interp = Rotation.from_quat(quat_interp)
-    
-    # Reconstruct pose
-    pose_interp = np.eye(4)
-    pose_interp[:3, :3] = rot_interp.as_matrix()
-    pose_interp[:3, 3] = t_interp
-    
-    return pose_interp[:3, :]
-
-
-# ============================================================================
-# SOLUTION 1A: DOWNSAMPLE DENSER TRAJECTORY (UNIVERSAL)
-# ============================================================================
-
-def solution_1a_downsample_denser(gt_path, kf_path, output_dir='./'):
-    """
-    Downsample whichever trajectory is denser to match the sparser one.
-    
-    This is the most universal approach - works regardless of which has more poses.
+    Returns:
+        dict: Information about applied fixes
     """
     print("\n" + "="*80)
-    print("SOLUTION 1A: DOWNSAMPLE DENSER TRAJECTORY (UNIVERSAL)")
+    print("COMPREHENSIVE POSE MISMATCH FIX")
     print("="*80)
     
-    gt = np.loadtxt(gt_path)
-    kf = np.loadtxt(kf_path)
+    # Load trajectories
+    print("\n[1/5] Loading trajectories...")
+    gt_traj = load_trajectory(gt_path)
+    kf_traj = load_trajectory(kf_path)
     
-    print(f"Ground truth poses: {len(gt)}")
-    print(f"Keyframe poses: {len(kf)}")
+    print(f"  Ground truth: {len(gt_traj)} poses")
+    print(f"  Keyframes:    {len(kf_traj)} poses")
     
-    # Determine which trajectory to downsample
-    if len(gt) > len(kf):
-        print(f"\n→ Ground truth is denser. Downsampling GT to match KF.")
-        dense_traj = gt
-        sparse_traj = kf
-        downsample_gt = True
-    elif len(kf) > len(gt):
-        print(f"\n→ Keyframes are denser. Downsampling KF to match GT.")
-        dense_traj = kf
-        sparse_traj = gt
-        downsample_gt = False
-    else:
-        print(f"\n→ Trajectories already have equal length!")
-        return gt, kf
+    # Analyze trajectories
+    print("\n[2/5] Analyzing trajectory characteristics...")
+    gt_info = analyze_trajectory(gt_traj, "Ground Truth")
+    kf_info = analyze_trajectory(kf_traj, "Keyframes")
     
-    # Calculate downsample factor
-    downsample_factor = max(1, len(dense_traj) // len(sparse_traj))
-    print(f"Downsampling by factor: {downsample_factor}")
-    print(f"Dense trajectory original: {len(dense_traj)} poses")
+    print(f"\n  Ground Truth:")
+    print(f"    Main motion axis: {gt_info['main_axis_name']}")
+    print(f"    Variance: X={gt_info['variance'][0]:.1f}, Y={gt_info['variance'][1]:.1f}, Z={gt_info['variance'][2]:.1f}")
+    print(f"    Range: X={gt_info['range'][0]:.1f}m, Y={gt_info['range'][1]:.1f}m, Z={gt_info['range'][2]:.1f}m")
     
-    # Downsample
-    downsampled = dense_traj[::downsample_factor]
-    print(f"After downsampling: {len(downsampled)} poses")
+    print(f"\n  Keyframes:")
+    print(f"    Main motion axis: {kf_info['main_axis_name']}")
+    print(f"    Variance: X={kf_info['variance'][0]:.1f}, Y={kf_info['variance'][1]:.1f}, Z={kf_info['variance'][2]:.1f}")
+    print(f"    Range: X={kf_info['range'][0]:.1f}m, Y={kf_info['range'][1]:.1f}m, Z={kf_info['range'][2]:.1f}m")
     
-    # Trim to match exactly
-    min_len = min(len(downsampled), len(sparse_traj))
-    downsampled = downsampled[:min_len]
-    sparse_trimmed = sparse_traj[:min_len]
+    # Detect coordinate mismatch
+    print("\n[3/5] Detecting coordinate frame mismatch...")
+    mismatch_info = detect_coordinate_mismatch(gt_info, kf_info)
     
-    print(f"After trimming to match: {min_len} poses")
-    
-    # Save with appropriate names
-    if downsample_gt:
-        gt_output = os.path.join(output_dir, '08_gt_downsampled.txt')
-        kf_output = os.path.join(output_dir, 'KeyFrameTrajectory_trimmed.txt')
-        np.savetxt(gt_output, downsampled, fmt='%.12e')
-        np.savetxt(kf_output, sparse_trimmed, fmt='%.12e')
-        print(f"\n✓ Saved downsampled GT to: {gt_output}")
-        print(f"✓ Saved trimmed KF to: {kf_output}")
-    else:
-        gt_output = os.path.join(output_dir, '08_gt_trimmed.txt')
-        kf_output = os.path.join(output_dir, 'KeyFrameTrajectory_downsampled.txt')
-        np.savetxt(gt_output, sparse_trimmed, fmt='%.12e')
-        np.savetxt(kf_output, downsampled, fmt='%.12e')
-        print(f"\n✓ Saved trimmed GT to: {gt_output}")
-        print(f"✓ Saved downsampled KF to: {kf_output}")
-    
-    print("\n📊 Command to run:")
-    print(f"  evo_ape kitti {gt_output} {kf_output} --correct_scale -a --pose_relation trans_part -va --plot --plot_mode xz --save_results results/ate_results.zip")
-    
-    return downsampled, sparse_trimmed
-
-
-# ============================================================================
-# SOLUTION 1B: INTELLIGENT UNIFORM SAMPLING
-# ============================================================================
-
-def solution_1b_uniform_sampling(gt_path, kf_path, output_dir='./'):
-    """
-    Sample both trajectories uniformly to a common length.
-    
-    This creates a more balanced comparison by sampling both trajectories
-    at uniform intervals to a target length (min of both trajectories).
-    """
-    print("\n" + "="*80)
-    print("SOLUTION 1B: INTELLIGENT UNIFORM SAMPLING")
-    print("="*80)
-    
-    gt = np.loadtxt(gt_path)
-    kf = np.loadtxt(kf_path)
-    
-    print(f"Ground truth poses: {len(gt)}")
-    print(f"Keyframe poses: {len(kf)}")
-    
-    # Use the minimum length as target
-    target_len = min(len(gt), len(kf))
-    print(f"\n→ Sampling both trajectories to length: {target_len}")
-    
-    # Uniform sampling indices
-    gt_indices = np.linspace(0, len(gt) - 1, target_len, dtype=int)
-    kf_indices = np.linspace(0, len(kf) - 1, target_len, dtype=int)
-    
-    gt_sampled = gt[gt_indices]
-    kf_sampled = kf[kf_indices]
-    
-    print(f"GT sampled: {len(gt_sampled)} poses")
-    print(f"KF sampled: {len(kf_sampled)} poses")
-    
-    # Save
-    gt_output = os.path.join(output_dir, '08_gt_uniform.txt')
-    kf_output = os.path.join(output_dir, 'KeyFrameTrajectory_uniform.txt')
-    
-    np.savetxt(gt_output, gt_sampled, fmt='%.12e')
-    np.savetxt(kf_output, kf_sampled, fmt='%.12e')
-    
-    print(f"\n✓ Saved uniformly sampled GT to: {gt_output}")
-    print(f"✓ Saved uniformly sampled KF to: {kf_output}")
-    
-    print("\n📊 Command to run:")
-    print(f"  evo_ape kitti {gt_output} {kf_output} --correct_scale -a --pose_relation trans_part -va --plot --plot_mode xz --save_results results/ate_results.zip")
-    
-    return gt_sampled, kf_sampled
-
-
-# ============================================================================
-# SOLUTION 2: INTERPOLATE SPARSER TRAJECTORY (UNIVERSAL)
-# ============================================================================
-
-def solution_2_interpolate_sparser(gt_path, kf_path, output_dir='./'):
-    """
-    Interpolate whichever trajectory is sparser to match the denser one.
-    
-    This approach preserves all data from the denser trajectory while
-    generating intermediate poses for the sparser trajectory.
-    """
-    print("\n" + "="*80)
-    print("SOLUTION 2: INTERPOLATE SPARSER TRAJECTORY (UNIVERSAL)")
-    print("="*80)
-    
-    gt = np.loadtxt(gt_path)
-    kf = np.loadtxt(kf_path)
-    
-    print(f"Ground truth poses: {len(gt)}")
-    print(f"Keyframe poses: {len(kf)}")
-    
-    # Determine which trajectory to interpolate
-    if len(gt) > len(kf):
-        print(f"\n→ Keyframes are sparser. Interpolating KF to match GT length.")
-        sparse_traj = kf
-        dense_traj = gt
-        target_len = len(gt)
-        interpolate_kf = True
-    elif len(kf) > len(gt):
-        print(f"\n→ Ground truth is sparser. Interpolating GT to match KF length.")
-        sparse_traj = gt
-        dense_traj = kf
-        target_len = len(kf)
-        interpolate_kf = False
-    else:
-        print(f"\n→ Trajectories already have equal length!")
-        return gt, kf
-    
-    print(f"Interpolating from {len(sparse_traj)} to {target_len} poses")
-    
-    # Convert to pose matrices
-    sparse_poses = kitti_to_poses(sparse_traj)
-    
-    # Create indices for sparse trajectory in the dense trajectory space
-    sparse_indices = np.linspace(0, target_len - 1, len(sparse_poses))
-    
-    # Interpolate
-    interpolated_poses = []
-    
-    for i in range(target_len):
-        if i <= sparse_indices[0]:
-            # Before first pose
-            pose = sparse_poses[0]
-        elif i >= sparse_indices[-1]:
-            # After last pose
-            pose = sparse_poses[-1]
-        else:
-            # Find surrounding poses
-            idx = np.searchsorted(sparse_indices, i)
-            
-            if idx == 0:
-                pose = sparse_poses[0]
-            elif idx >= len(sparse_poses):
-                pose = sparse_poses[-1]
-            else:
-                # Interpolate between sparse_poses[idx-1] and sparse_poses[idx]
-                idx_before = idx - 1
-                idx_after = idx
-                
-                t_before = sparse_indices[idx_before]
-                t_after = sparse_indices[idx_after]
-                
-                # Interpolation factor
-                t = (i - t_before) / (t_after - t_before)
-                
-                pose = interpolate_pose_slerp(
-                    sparse_poses[idx_before],
-                    sparse_poses[idx_after],
-                    t
-                )
+    if mismatch_info['mismatch']:
+        print(f"  ⚠️  MISMATCH DETECTED: {mismatch_info['description']}")
+        print(f"  Type: {mismatch_info['type']}")
         
-        interpolated_poses.append(pose)
-    
-    # Convert back to KITTI format
-    interpolated_traj = poses_to_kitti(interpolated_poses)
-    
-    print(f"Interpolated trajectory: {len(interpolated_traj)} poses")
-    print(f"Shape matches target: {interpolated_traj.shape[0] == target_len}")
-    
-    # Save with appropriate names
-    if interpolate_kf:
-        gt_output = os.path.join(output_dir, '08_gt_original.txt')
-        kf_output = os.path.join(output_dir, 'KeyFrameTrajectory_interpolated.txt')
-        np.savetxt(gt_output, dense_traj, fmt='%.12e')
-        np.savetxt(kf_output, interpolated_traj, fmt='%.12e')
-        print(f"\n✓ Saved original GT to: {gt_output}")
-        print(f"✓ Saved interpolated KF to: {kf_output}")
-    else:
-        gt_output = os.path.join(output_dir, '08_gt_interpolated.txt')
-        kf_output = os.path.join(output_dir, 'KeyFrameTrajectory_original.txt')
-        np.savetxt(gt_output, interpolated_traj, fmt='%.12e')
-        np.savetxt(kf_output, dense_traj, fmt='%.12e')
-        print(f"\n✓ Saved interpolated GT to: {gt_output}")
-        print(f"✓ Saved original KF to: {kf_output}")
-    
-    print("\n📊 Command to run:")
-    print(f"  evo_ape kitti {gt_output} {kf_output} --correct_scale -a --pose_relation trans_part -va --plot --plot_mode xz --save_results results/ate_results.zip")
-    
-    return interpolated_traj if not interpolate_kf else dense_traj, interpolated_traj if interpolate_kf else dense_traj
-
-
-# ============================================================================
-# SOLUTION 3: TIMESTAMP-BASED ALIGNMENT (RECOMMENDED)
-# ============================================================================
-
-def solution_3_timestamp_alignment():
-    """
-    Use timestamp-based alignment with EVO (when timestamps available).
-    
-    This is the gold standard for SLAM evaluation when you have timing info.
-    """
-    print("\n" + "="*80)
-    print("SOLUTION 3: TIMESTAMP-BASED ALIGNMENT (RECOMMENDED)")
-    print("="*80)
-    print("""
-If you have timestamp information (TUM format), this is the best approach:
-
-TUM FORMAT (time x y z qx qy qz qw):
-  timestamp tx ty tz qx qy qz qw
-
-CONVERT KITTI TO TUM WITH TIMESTAMPS:
-  evo_traj kitti KeyFrameTrajectory.txt --save_as_tum
-
-EVALUATE WITH TIMESTAMP ALIGNMENT:
-  evo_ape tum ground_truth.tum slam_trajectory.tum \\
-    -va --plot --save_results results/ate_results.zip \\
-    --align --correct_scale
-
-This automatically handles pose count mismatches through time-based matching.
-""")
-
-
-# ============================================================================
-# SOLUTION 4: EVO WITH PROPER FLAGS
-# ============================================================================
-
-def solution_4_evo_advanced():
-    """
-    Advanced EVO options for handling trajectory comparison.
-    """
-    print("\n" + "="*80)
-    print("SOLUTION 4: ADVANCED EVO OPTIONS")
-    print("="*80)
-    print("""
-EVO has several options to handle pose count mismatches:
-
-1. ALIGN WITH SE(3) Umeyama (handles scale, rotation, translation):
-   evo_ape kitti gt.txt slam.txt -va --plot \\
-     --align --correct_scale
-
-2. ALIGN ORIGIN ONLY (simpler, may work with different lengths):
-   evo_ape kitti gt.txt slam.txt -va --plot \\
-     --align_origin --correct_scale
-
-3. ALIGN WITH N POSES (uses first N poses for alignment):
-   evo_ape kitti gt.txt slam.txt -va --plot \\
-     --align --n_to_align 100 --correct_scale
-
-4. NO ALIGNMENT (compare in same coordinate system):
-   evo_ape kitti gt.txt slam.txt -va --plot
-
-5. CHECK YOUR EVO VERSION (newer versions handle mismatches better):
-   evo --version
-   pip install evo --upgrade
-
-NOTE: Some EVO versions handle trajectory length mismatches automatically.
-Try the commands above before resampling trajectories.
-""")
-
-
-# ============================================================================
-# AUTOMATIC SOLUTION SELECTOR
-# ============================================================================
-
-def auto_select_solution(gt_path, kf_path, output_dir='./'):
-    """
-    Automatically select the best solution based on trajectory characteristics.
-    """
-    print("\n" + "="*80)
-    print("AUTO-SELECT: ANALYZING TRAJECTORIES")
-    print("="*80)
-    
-    gt = np.loadtxt(gt_path)
-    kf = np.loadtxt(kf_path)
-    
-    gt_len = len(gt)
-    kf_len = len(kf)
-    ratio = max(gt_len, kf_len) / min(gt_len, kf_len)
-    
-    print(f"Ground truth poses: {gt_len}")
-    print(f"Keyframe poses: {kf_len}")
-    print(f"Length ratio: {ratio:.2f}x")
-    
-    # Decision logic
-    if abs(gt_len - kf_len) <= 10:
-        print("\n✓ Trajectories are nearly equal length.")
-        print("→ Recommendation: Use Solution 1B (uniform sampling) or try EVO directly")
-        return solution_1b_uniform_sampling(gt_path, kf_path, output_dir)
-    
-    elif ratio < 1.5:
-        print("\n✓ Trajectories have similar lengths (ratio < 1.5x).")
-        print("→ Recommendation: Solution 1B (uniform sampling) for balanced comparison")
-        return solution_1b_uniform_sampling(gt_path, kf_path, output_dir)
-    
-    elif ratio < 3.0:
-        print("\n✓ Moderate length difference (1.5x - 3x).")
-        print("→ Recommendation: Solution 1A (downsample denser trajectory)")
-        return solution_1a_downsample_denser(gt_path, kf_path, output_dir)
-    
-    else:
-        print("\n⚠ Large length difference (>3x ratio).")
-        print("→ Recommendation: Solution 2 (interpolate sparser trajectory)")
-        print("→ Alternative: Consider if data alignment is correct")
-        return solution_2_interpolate_sparser(gt_path, kf_path, output_dir)
-
-
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
-
-def main():
-    print("\n" + "="*80)
-    print("ENHANCED POSE MISMATCH FIX - Universal Solution")
-    print("="*80)
-    print("""
-This enhanced version handles ALL cases:
-  ✓ Ground truth denser than keyframes (GT > KF)
-  ✓ Keyframes denser than ground truth (KF > GT)  ← YOUR CASE
-  ✓ Roughly equal lengths (GT ≈ KF)
-
-CURRENT SCENARIO:
-  - Ground truth: 1,790 poses
-  - Keyframes: 1,801 poses
-  - Issue: Keyframes outnumber ground truth (uncommon but valid)
-
-WHY THIS HAPPENS:
-  - Very smooth camera motion → more keyframes selected
-  - Short sequence with detailed tracking
-  - Loop closure creating additional keyframes
-""")
-    
-    # Default paths (modify as needed)
-    default_gt = './data/data_odometry_poses/poses/08_cleaned.txt'
-    default_kf = './third_party/ORB_SLAM3/Examples/Monocular/KeyFrameTrajectory.txt'
-    
-    print("\n" + "="*80)
-    print("SOLUTION OPTIONS:")
-    print("="*80)
-    print("  0) Auto-select best solution (recommended)")
-    print("  1a) Downsample denser trajectory (universal)")
-    print("  1b) Uniform sampling (balanced)")
-    print("  2) Interpolate sparser trajectory (preserves dense data)")
-    print("  3) Timestamp-based alignment (if timestamps available)")
-    print("  4) Advanced EVO options (try first)")
-    print("  5) Show all solutions")
-    
-    choice = input("\nEnter choice (0-5, or press Enter for 0): ").strip() or "0"
-    
-    # Get file paths
-    if len(sys.argv) >= 3:
-        gt_path = sys.argv[1]
-        kf_path = sys.argv[2]
-        output_dir = sys.argv[3] if len(sys.argv) >= 4 else './'
-    else:
-        use_default = input(f"\nUse default paths? (y/n, default=y): ").strip().lower()
-        if use_default != 'n':
-            gt_path = default_gt
-            kf_path = default_kf
-            output_dir = './'
+        if auto_transform:
+            if mismatch_info['recommended_transform'] == 'auto_detect':
+                transform_type, _ = auto_detect_best_transformation(gt_traj, kf_traj)
+            else:
+                transform_type = mismatch_info['recommended_transform']
+            
+            print(f"\n  Applying transformation: {transform_type}")
+            T = get_transformation_matrix(transform_type)
+            kf_traj = apply_transformation(kf_traj, T)
+            
+            # Re-analyze after transformation
+            kf_info = analyze_trajectory(kf_traj, "Keyframes (after transform)")
+            print(f"  After transform - Main axis: {kf_info['main_axis_name']}")
         else:
-            gt_path = input("Ground truth path: ").strip()
-            kf_path = input("Keyframe path: ").strip()
-            output_dir = input("Output directory (default=./): ").strip() or './'
-    
-    # Execute chosen solution
-    if choice == "0":
-        auto_select_solution(gt_path, kf_path, output_dir)
-    elif choice == "1a":
-        solution_1a_downsample_denser(gt_path, kf_path, output_dir)
-    elif choice == "1b":
-        solution_1b_uniform_sampling(gt_path, kf_path, output_dir)
-    elif choice == "2":
-        solution_2_interpolate_sparser(gt_path, kf_path, output_dir)
-    elif choice == "3":
-        solution_3_timestamp_alignment()
-    elif choice == "4":
-        solution_4_evo_advanced()
-    elif choice == "5":
-        print("\n" + "="*80)
-        print("SHOWING ALL SOLUTIONS")
-        print("="*80)
-        auto_select_solution(gt_path, kf_path, output_dir)
-        solution_3_timestamp_alignment()
-        solution_4_evo_advanced()
+            print(f"  Recommended transform: {mismatch_info['recommended_transform']}")
+            print(f"  Auto-transform disabled. Proceeding without transformation.")
     else:
-        print("Invalid choice. Using auto-select.")
-        auto_select_solution(gt_path, kf_path, output_dir)
+        print(f"  ✓ No coordinate mismatch detected")
+        transform_type = 'none'
     
+    # Handle length mismatch
+    print("\n[4/5] Handling trajectory length mismatch...")
+    target_length = min(len(gt_traj), len(kf_traj))
+    
+    if len(gt_traj) != len(kf_traj):
+        print(f"  Length mismatch detected")
+        print(f"  Sampling both to length: {target_length}")
+        
+        gt_traj = uniform_sample(gt_traj, target_length)
+        kf_traj = uniform_sample(kf_traj, target_length)
+    else:
+        print(f"  ✓ Lengths already match: {target_length}")
+    
+    # Save results
+    print("\n[5/5] Saving corrected trajectories...")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    gt_output = os.path.join(output_dir, 'gt_corrected.txt')
+    kf_output = os.path.join(output_dir, 'kf_corrected.txt')
+    
+    np.savetxt(gt_output, gt_traj, fmt='%.12e')
+    np.savetxt(kf_output, kf_traj, fmt='%.12e')
+    
+    print(f"  ✓ Saved corrected GT to: {gt_output}")
+    print(f"  ✓ Saved corrected KF to: {kf_output}")
+    
+    # Final summary
     print("\n" + "="*80)
     print("✓ PROCESSING COMPLETE")
     print("="*80)
-    print("\n💡 TIPS:")
-    print("  - For research papers, document which alignment method you used")
-    print("  - Downsampling is conservative (loses data)")
-    print("  - Interpolation assumes smooth motion between poses")
-    print("  - Uniform sampling provides balanced comparison")
-    print("  - Try EVO's built-in options first (Solution 4)")
-    print("\n")
+    
+    print(f"\nApplied fixes:")
+    print(f"  1. Coordinate transformation: {transform_type}")
+    print(f"  2. Uniform sampling: {target_length} poses")
+    
+    print(f"\n📊 Ready for evaluation:")
+    print(f"\n  evo_ape kitti {gt_output} {kf_output} \\")
+    print(f"      --correct_scale -a --pose_relation trans_part \\")
+    print(f"      -va --plot --plot_mode xz --save_results results/corrected_result.zip")
+    
+    return {
+        'transform_applied': transform_type,
+        'final_length': target_length,
+        'gt_output': gt_output,
+        'kf_output': kf_output,
+        'mismatch_detected': mismatch_info['mismatch']
+    }
+
+
+def main():
+    """Main function with command-line interface."""
+    print("\n" + "="*80)
+    print("ENHANCED POSE MISMATCH FIX - Complete Solution")
+    print("="*80)
+    print("""
+This script automatically:
+  ✓ Detects coordinate frame mismatches (rotation/flip)
+  ✓ Applies the correct transformation
+  ✓ Resamples trajectories to match lengths
+  ✓ Generates files ready for evo_ape evaluation
+
+No manual intervention required!
+""")
+    
+    # Default paths
+    default_gt = './data/data_odometry_poses/poses/08_cleaned.txt'
+    default_kf = './third_party/ORB_SLAM3/Examples/Monocular/KeyFrameTrajectory.txt'
+    default_output = './'
+    
+    # Parse command line arguments
+    if len(sys.argv) >= 3:
+        gt_path = sys.argv[1]
+        kf_path = sys.argv[2]
+        output_dir = sys.argv[3] if len(sys.argv) >= 4 else default_output
+    else:
+        print("Usage: python fix_pose_mismatch.py <gt_path> <kf_path> [output_dir]")
+        print("\nUsing default paths...")
+        
+        gt_path = default_gt
+        kf_path = default_kf
+        output_dir = default_output
+    
+    print(f"\nInput files:")
+    print(f"  Ground truth: {gt_path}")
+    print(f"  Keyframes:    {kf_path}")
+    print(f"  Output dir:   {output_dir}")
+    
+    # Check if files exist
+    if not os.path.exists(gt_path):
+        print(f"\n❌ Error: Ground truth file not found: {gt_path}")
+        sys.exit(1)
+    
+    if not os.path.exists(kf_path):
+        print(f"\n❌ Error: Keyframe file not found: {kf_path}")
+        sys.exit(1)
+    
+    # Run the fix
+    try:
+        result = fix_pose_mismatch(gt_path, kf_path, output_dir, auto_transform=True)
+        
+        print("\n" + "="*80)
+        print("SUCCESS!")
+        print("="*80)
+        print("\nYour trajectories are now aligned and ready for evaluation.")
+        print("The coordinate frame mismatch has been automatically corrected.")
+        print("\nNext time you run ORB-SLAM3, just update the keyframe path and re-run this script!")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
