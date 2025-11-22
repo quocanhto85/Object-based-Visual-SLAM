@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
 Enhanced Fix for EVO pose alignment mismatch error - Complete Solution
+Supports both KITTI and TUM trajectory formats
 
 This version handles:
 1. Pose count mismatches (GT vs KF)
 2. Coordinate frame mismatches (rotation/flip detection and correction)
 3. Scale differences (handled by evo's Sim(3), but we verify)
+4. Both KITTI and TUM trajectory formats
 
 The script automatically:
+- Detects trajectory format (KITTI or TUM)
 - Detects coordinate frame mismatches
 - Applies the correct transformation
 - Resamples trajectories to match lengths
@@ -22,14 +25,100 @@ import sys
 from pathlib import Path
 
 
+def detect_format(filepath):
+    """Detect trajectory format (KITTI or TUM)."""
+    data = np.loadtxt(filepath)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    
+    num_cols = data.shape[1]
+    
+    if num_cols == 12:
+        return 'kitti'
+    elif num_cols == 8:
+        return 'tum'
+    else:
+        raise ValueError(f"Unknown format: {num_cols} columns. Expected 12 (KITTI) or 8 (TUM)")
+
+
 def load_trajectory(filepath):
-    """Load trajectory from KITTI format file."""
-    return np.loadtxt(filepath)
+    """Load trajectory from KITTI or TUM format file."""
+    data = np.loadtxt(filepath)
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    return data
 
 
-def analyze_trajectory(traj, name="Trajectory"):
+def tum_to_kitti(tum_data):
+    """
+    Convert TUM format to KITTI format.
+    TUM: timestamp tx ty tz qx qy qz qw (8 values)
+    KITTI: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz (12 values)
+    """
+    kitti_data = []
+    
+    for row in tum_data:
+        # Extract translation and quaternion
+        tx, ty, tz = row[1], row[2], row[3]
+        qx, qy, qz, qw = row[4], row[5], row[6], row[7]
+        
+        # Convert quaternion to rotation matrix
+        r = Rotation.from_quat([qx, qy, qz, qw])
+        R = r.as_matrix()
+        
+        # Create KITTI row: [r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz]
+        kitti_row = [
+            R[0, 0], R[0, 1], R[0, 2], tx,
+            R[1, 0], R[1, 1], R[1, 2], ty,
+            R[2, 0], R[2, 1], R[2, 2], tz
+        ]
+        kitti_data.append(kitti_row)
+    
+    return np.array(kitti_data)
+
+
+def kitti_to_tum(kitti_data, start_timestamp=0.0):
+    """
+    Convert KITTI format to TUM format.
+    KITTI: r11 r12 r13 tx r21 r22 r23 ty r31 r32 r33 tz (12 values)
+    TUM: timestamp tx ty tz qx qy qz qw (8 values)
+    """
+    tum_data = []
+    
+    for i, row in enumerate(kitti_data):
+        # Extract rotation matrix and translation
+        R = np.array([
+            [row[0], row[1], row[2]],
+            [row[4], row[5], row[6]],
+            [row[8], row[9], row[10]]
+        ])
+        tx, ty, tz = row[3], row[7], row[11]
+        
+        # Convert rotation matrix to quaternion
+        r = Rotation.from_matrix(R)
+        quat = r.as_quat()  # Returns [qx, qy, qz, qw]
+        
+        # Create TUM row with sequential timestamp
+        timestamp = start_timestamp + i * 0.1  # 0.1 second intervals
+        tum_row = [timestamp, tx, ty, tz, quat[0], quat[1], quat[2], quat[3]]
+        tum_data.append(tum_row)
+    
+    return np.array(tum_data)
+
+
+def extract_translations(traj, fmt):
+    """Extract translations from trajectory based on format."""
+    if fmt == 'kitti':
+        return traj[:, [3, 7, 11]]  # Extract tx, ty, tz
+    elif fmt == 'tum':
+        return traj[:, [1, 2, 3]]   # Extract tx, ty, tz
+    else:
+        raise ValueError(f"Unknown format: {fmt}")
+
+
+def analyze_trajectory(traj, fmt, name="Trajectory"):
     """Analyze trajectory characteristics."""
-    translations = traj[:, [3, 7, 11]]  # Extract tx, ty, tz
+    translations = extract_translations(traj, fmt)
     
     # Compute statistics
     mean = translations.mean(axis=0)
@@ -47,7 +136,8 @@ def analyze_trajectory(traj, name="Trajectory"):
         'range': range_vals,
         'main_axis': main_axis,
         'main_axis_name': main_axis_name,
-        'length': len(traj)
+        'length': len(traj),
+        'format': fmt
     }
 
 
@@ -157,8 +247,18 @@ def get_transformation_matrix(transform_type):
     return transforms.get(transform_type, np.eye(4))
 
 
-def apply_transformation(trajectory, transform_matrix):
-    """Apply transformation matrix to trajectory."""
+def apply_transformation(trajectory, transform_matrix, fmt):
+    """Apply transformation matrix to trajectory (works for both KITTI and TUM)."""
+    if fmt == 'kitti':
+        return apply_transformation_kitti(trajectory, transform_matrix)
+    elif fmt == 'tum':
+        return apply_transformation_tum(trajectory, transform_matrix)
+    else:
+        raise ValueError(f"Unknown format: {fmt}")
+
+
+def apply_transformation_kitti(trajectory, transform_matrix):
+    """Apply transformation matrix to KITTI trajectory."""
     transformed = []
     
     for pose_row in trajectory:
@@ -175,12 +275,48 @@ def apply_transformation(trajectory, transform_matrix):
     return np.array(transformed)
 
 
-def auto_detect_best_transformation(gt_traj, kf_traj):
+def apply_transformation_tum(trajectory, transform_matrix):
+    """Apply transformation matrix to TUM trajectory."""
+    transformed = []
+    
+    for row in trajectory:
+        timestamp = row[0]
+        tx, ty, tz = row[1], row[2], row[3]
+        qx, qy, qz, qw = row[4], row[5], row[6], row[7]
+        
+        # Convert quaternion to rotation matrix
+        r = Rotation.from_quat([qx, qy, qz, qw])
+        R = r.as_matrix()
+        
+        # Create 4x4 pose matrix
+        pose = np.eye(4)
+        pose[:3, :3] = R
+        pose[:3, 3] = [tx, ty, tz]
+        
+        # Apply transformation
+        pose_new = transform_matrix @ pose
+        
+        # Extract new rotation and translation
+        R_new = pose_new[:3, :3]
+        t_new = pose_new[:3, 3]
+        
+        # Convert back to quaternion
+        r_new = Rotation.from_matrix(R_new)
+        q_new = r_new.as_quat()  # [qx, qy, qz, qw]
+        
+        # Store as TUM format
+        transformed.append([timestamp, t_new[0], t_new[1], t_new[2], 
+                          q_new[0], q_new[1], q_new[2], q_new[3]])
+    
+    return np.array(transformed)
+
+
+def auto_detect_best_transformation(gt_traj, kf_traj, gt_fmt, kf_fmt):
     """
     Automatically detect best transformation by testing all options.
     Returns the transform that minimizes center distance.
     """
-    gt_trans = gt_traj[:, [3, 7, 11]]
+    gt_trans = extract_translations(gt_traj, gt_fmt)
     gt_center = gt_trans.mean(axis=0)
     
     transforms_to_test = [
@@ -204,8 +340,8 @@ def auto_detect_best_transformation(gt_traj, kf_traj):
     
     for transform_name in transforms_to_test:
         T = get_transformation_matrix(transform_name)
-        kf_transformed = apply_transformation(kf_traj, T)
-        kf_trans = kf_transformed[:, [3, 7, 11]]
+        kf_transformed = apply_transformation(kf_traj, T, kf_fmt)
+        kf_trans = extract_translations(kf_transformed, kf_fmt)
         kf_center = kf_trans.mean(axis=0)
         
         # Distance metric
@@ -244,7 +380,7 @@ def uniform_sample(trajectory, target_length):
     return trajectory[indices]
 
 
-def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
+def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True, output_format='kitti'):
     """
     Complete fix for pose mismatch: handles both coordinate frames and length.
     
@@ -253,26 +389,52 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
         kf_path: Path to keyframe trajectory file
         output_dir: Output directory for fixed files
         auto_transform: Automatically detect and apply coordinate transformation
+        output_format: Output format ('kitti' or 'tum' or 'auto' to match GT)
     
     Returns:
         dict: Information about applied fixes
     """
     print("\n" + "="*80)
-    print("COMPREHENSIVE POSE MISMATCH FIX")
+    print("COMPREHENSIVE POSE MISMATCH FIX (KITTI & TUM Support)")
     print("="*80)
     
+    # Detect formats
+    print("\n[1/6] Detecting trajectory formats...")
+    gt_fmt = detect_format(gt_path)
+    kf_fmt = detect_format(kf_path)
+    
+    print(f"  Ground truth format: {gt_fmt.upper()}")
+    print(f"  Keyframes format:    {kf_fmt.upper()}")
+    
     # Load trajectories
-    print("\n[1/5] Loading trajectories...")
+    print("\n[2/6] Loading trajectories...")
     gt_traj = load_trajectory(gt_path)
     kf_traj = load_trajectory(kf_path)
     
     print(f"  Ground truth: {len(gt_traj)} poses")
     print(f"  Keyframes:    {len(kf_traj)} poses")
     
+    # Convert both to KITTI for internal processing (easier to work with)
+    if gt_fmt == 'tum':
+        gt_traj_kitti = tum_to_kitti(gt_traj)
+        gt_working = gt_traj_kitti
+        gt_working_fmt = 'kitti'
+    else:
+        gt_working = gt_traj
+        gt_working_fmt = gt_fmt
+    
+    if kf_fmt == 'tum':
+        kf_traj_kitti = tum_to_kitti(kf_traj)
+        kf_working = kf_traj_kitti
+        kf_working_fmt = 'kitti'
+    else:
+        kf_working = kf_traj
+        kf_working_fmt = kf_fmt
+    
     # Analyze trajectories
-    print("\n[2/5] Analyzing trajectory characteristics...")
-    gt_info = analyze_trajectory(gt_traj, "Ground Truth")
-    kf_info = analyze_trajectory(kf_traj, "Keyframes")
+    print("\n[3/6] Analyzing trajectory characteristics...")
+    gt_info = analyze_trajectory(gt_working, gt_working_fmt, "Ground Truth")
+    kf_info = analyze_trajectory(kf_working, kf_working_fmt, "Keyframes")
     
     print(f"\n  Ground Truth:")
     print(f"    Main motion axis: {gt_info['main_axis_name']}")
@@ -285,7 +447,7 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
     print(f"    Range: X={kf_info['range'][0]:.1f}m, Y={kf_info['range'][1]:.1f}m, Z={kf_info['range'][2]:.1f}m")
     
     # Detect coordinate mismatch
-    print("\n[3/5] Detecting coordinate frame mismatch...")
+    print("\n[4/6] Detecting coordinate frame mismatch...")
     mismatch_info = detect_coordinate_mismatch(gt_info, kf_info)
     
     if mismatch_info['mismatch']:
@@ -294,16 +456,17 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
         
         if auto_transform:
             if mismatch_info['recommended_transform'] == 'auto_detect':
-                transform_type, _ = auto_detect_best_transformation(gt_traj, kf_traj)
+                transform_type, _ = auto_detect_best_transformation(gt_working, kf_working, 
+                                                                    gt_working_fmt, kf_working_fmt)
             else:
                 transform_type = mismatch_info['recommended_transform']
             
             print(f"\n  Applying transformation: {transform_type}")
             T = get_transformation_matrix(transform_type)
-            kf_traj = apply_transformation(kf_traj, T)
+            kf_working = apply_transformation(kf_working, T, kf_working_fmt)
             
             # Re-analyze after transformation
-            kf_info = analyze_trajectory(kf_traj, "Keyframes (after transform)")
+            kf_info = analyze_trajectory(kf_working, kf_working_fmt, "Keyframes (after transform)")
             print(f"  After transform - Main axis: {kf_info['main_axis_name']}")
         else:
             print(f"  Recommended transform: {mismatch_info['recommended_transform']}")
@@ -313,27 +476,41 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
         transform_type = 'none'
     
     # Handle length mismatch
-    print("\n[4/5] Handling trajectory length mismatch...")
-    target_length = min(len(gt_traj), len(kf_traj))
+    print("\n[5/6] Handling trajectory length mismatch...")
+    target_length = min(len(gt_working), len(kf_working))
     
-    if len(gt_traj) != len(kf_traj):
+    if len(gt_working) != len(kf_working):
         print(f"  Length mismatch detected")
         print(f"  Sampling both to length: {target_length}")
         
-        gt_traj = uniform_sample(gt_traj, target_length)
-        kf_traj = uniform_sample(kf_traj, target_length)
+        gt_working = uniform_sample(gt_working, target_length)
+        kf_working = uniform_sample(kf_working, target_length)
     else:
         print(f"  ✓ Lengths already match: {target_length}")
     
-    # Save results
-    print("\n[5/5] Saving corrected trajectories...")
+    # Determine output format
+    if output_format == 'auto':
+        output_format = gt_fmt
+    
+    print(f"\n[6/6] Saving corrected trajectories (format: {output_format.upper()})...")
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Convert to output format if needed
+    if output_format == 'tum' and gt_working_fmt == 'kitti':
+        gt_output_data = kitti_to_tum(gt_working)
+        kf_output_data = kitti_to_tum(kf_working)
+    elif output_format == 'kitti' and gt_working_fmt == 'tum':
+        gt_output_data = tum_to_kitti(gt_working)
+        kf_output_data = tum_to_kitti(kf_working)
+    else:
+        gt_output_data = gt_working
+        kf_output_data = kf_working
     
     gt_output = os.path.join(output_dir, 'gt_corrected.txt')
     kf_output = os.path.join(output_dir, 'kf_corrected.txt')
     
-    np.savetxt(gt_output, gt_traj, fmt='%.12e')
-    np.savetxt(kf_output, kf_traj, fmt='%.12e')
+    np.savetxt(gt_output, gt_output_data, fmt='%.12e')
+    np.savetxt(kf_output, kf_output_data, fmt='%.12e')
     
     print(f"  ✓ Saved corrected GT to: {gt_output}")
     print(f"  ✓ Saved corrected KF to: {kf_output}")
@@ -344,8 +521,9 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
     print("="*80)
     
     print(f"\nApplied fixes:")
-    print(f"  1. Coordinate transformation: {transform_type}")
-    print(f"  2. Uniform sampling: {target_length} poses")
+    print(f"  1. Format conversion: GT={gt_fmt.upper()}, KF={kf_fmt.upper()} → Output={output_format.upper()}")
+    print(f"  2. Coordinate transformation: {transform_type}")
+    print(f"  3. Uniform sampling: {target_length} poses")
     
     print(f"\n📊 Ready for evaluation:")
     print(f"\n  evo_ape kitti {gt_output} {kf_output} \\")
@@ -357,7 +535,9 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True):
         'final_length': target_length,
         'gt_output': gt_output,
         'kf_output': kf_output,
-        'mismatch_detected': mismatch_info['mismatch']
+        'mismatch_detected': mismatch_info['mismatch'],
+        'input_formats': {'gt': gt_fmt, 'kf': kf_fmt},
+        'output_format': output_format
     }
 
 
@@ -365,9 +545,11 @@ def main():
     """Main function with command-line interface."""
     print("\n" + "="*80)
     print("ENHANCED POSE MISMATCH FIX - Complete Solution")
+    print("Supports KITTI and TUM trajectory formats")
     print("="*80)
     print("""
 This script automatically:
+  ✓ Detects trajectory format (KITTI or TUM)
   ✓ Detects coordinate frame mismatches (rotation/flip)
   ✓ Applies the correct transformation
   ✓ Resamples trajectories to match lengths
@@ -377,9 +559,9 @@ No manual intervention required!
 """)
     
     # Default paths
-    default_gt = './data/data_odometry_poses/poses/08_cleaned.txt'
+    default_gt = './data/data_odometry_poses/poses/08.txt'
     default_kf = './third_party/ORB_SLAM3/Examples/Monocular/KeyFrameTrajectory.txt'
-    default_output = './'
+    default_output = './experiment_outputs'
     
     # Parse command line arguments
     if len(sys.argv) >= 3:
@@ -410,12 +592,16 @@ No manual intervention required!
     
     # Run the fix
     try:
-        result = fix_pose_mismatch(gt_path, kf_path, output_dir, auto_transform=True)
+        result = fix_pose_mismatch(gt_path, kf_path, output_dir, 
+                                  auto_transform=True, output_format='kitti')
         
         print("\n" + "="*80)
         print("SUCCESS!")
         print("="*80)
         print("\nYour trajectories are now aligned and ready for evaluation.")
+        print(f"Input formats: GT={result['input_formats']['gt'].upper()}, "
+              f"KF={result['input_formats']['kf'].upper()}")
+        print(f"Output format: {result['output_format'].upper()}")
         print("The coordinate frame mismatch has been automatically corrected.")
         print("\nNext time you run ORB-SLAM3, just update the keyframe path and re-run this script!")
         
