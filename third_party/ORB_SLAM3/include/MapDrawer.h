@@ -78,6 +78,7 @@ private:
 
     // 3D_CUBOID
     unsigned long mCurrentFrameId = 0;
+    unsigned long mMostRecentFrameId = 0;  // Track actual most recent frame
     mutable std::mutex mMutexFrameId;
 
     Sophus::SE3f mCameraPose;

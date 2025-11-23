@@ -200,6 +200,19 @@ namespace ORB_SLAM3
          */
         void SaveKeyFrameTrajectoryKITTI(const std::string &filename, const std::string &filename2 = "");
 
+        /**
+         * @brief Save detected cuboids for current frame
+         * @param frame_id Current frame number
+         * @param output_dir Directory to save cuboid JSON files
+         */
+        void SaveCurrentCuboids(int frame_id, const std::string &output_dir);
+
+        /**
+         * @brief Enable/disable cuboid export
+         * @param enable True to enable export, false to disable
+         */
+        void EnableCuboidExport(bool enable);
+
 #ifdef REGISTER_TIMES
         void InsertRectTime(double &time);
         void InsertResizeTime(double &time);
@@ -279,6 +292,9 @@ namespace ORB_SLAM3
         std::vector<std::vector<ORB_SLAM3::Cuboid>> mAllCuboids;
         int mCurrentFrameIdx;
         std::mutex mMutexCuboids;
+
+        bool mbCuboidExportEnabled;
+        std::string mCuboidOutputDir;
     };
 
 } // namespace ORB_SLAM

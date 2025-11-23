@@ -20,6 +20,7 @@
 #include "Converter.h"
 #include <thread>
 #include <pangolin/pangolin.h>
+#include <nlohmann/json.hpp>
 #include <iomanip>
 #include <openssl/md5.h>
 #include <boost/serialization/base_object.hpp>
@@ -37,8 +38,7 @@ namespace ORB_SLAM3
     Verbose::eLevel Verbose::th = Verbose::VERBOSITY_NORMAL;
 
     System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor,
-                   const bool bUseViewer, const int initFr, const string &strSequence) : mSensor(sensor), mpViewer(static_cast<Viewer *>(NULL)), mbReset(false), mbResetActiveMap(false),
-                                                                                         mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false)
+                   const bool bUseViewer, const int initFr, const string &strSequence) : mSensor(sensor), mpViewer(static_cast<Viewer *>(NULL)), mbReset(false), mbResetActiveMap(false), mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false), mbCuboidExportEnabled(false), mCuboidOutputDir("")
     {
         // Output welcome message
         cout << endl
@@ -1293,59 +1293,6 @@ namespace ORB_SLAM3
         f.close();
     }
 
-    /*void System::SaveTrajectoryKITTI(const string &filename)
-    {
-        cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
-        if(mSensor==MONOCULAR)
-        {
-            cerr << "ERROR: SaveTrajectoryKITTI cannot be used for monocular." << endl;
-            return;
-        }
-
-        vector<KeyFrame*> vpKFs = mpAtlas->GetAllKeyFrames();
-        sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
-
-        // Transform all keyframes so that the first keyframe is at the origin.
-        // After a loop closure the first keyframe might not be at the origin.
-        cv::Mat Two = vpKFs[0]->GetPoseInverse();
-
-        ofstream f;
-        f.open(filename.c_str());
-        f << fixed;
-
-        // Frame pose is stored relative to its reference keyframe (which is optimized by BA and pose graph).
-        // We need to get first the keyframe pose and then concatenate the relative transformation.
-        // Frames not localized (tracking failure) are not saved.
-
-        // For each frame we have a reference keyframe (lRit), the timestamp (lT) and a flag
-        // which is true when tracking failed (lbL).
-        list<ORB_SLAM3::KeyFrame*>::iterator lRit = mpTracker->mlpReferences.begin();
-        list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
-        for(list<cv::Mat>::iterator lit=mpTracker->mlRelativeFramePoses.begin(), lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++)
-        {
-            ORB_SLAM3::KeyFrame* pKF = *lRit;
-
-            cv::Mat Trw = cv::Mat::eye(4,4,CV_32F);
-
-            while(pKF->isBad())
-            {
-                Trw = Trw * Converter::toCvMat(pKF->mTcp.matrix());
-                pKF = pKF->GetParent();
-            }
-
-            Trw = Trw * pKF->GetPoseCv() * Two;
-
-            cv::Mat Tcw = (*lit)*Trw;
-            cv::Mat Rwc = Tcw.rowRange(0,3).colRange(0,3).t();
-            cv::Mat twc = -Rwc*Tcw.rowRange(0,3).col(3);
-
-            f << setprecision(9) << Rwc.at<float>(0,0) << " " << Rwc.at<float>(0,1)  << " " << Rwc.at<float>(0,2) << " "  << twc.at<float>(0) << " " <<
-                 Rwc.at<float>(1,0) << " " << Rwc.at<float>(1,1)  << " " << Rwc.at<float>(1,2) << " "  << twc.at<float>(1) << " " <<
-                 Rwc.at<float>(2,0) << " " << Rwc.at<float>(2,1)  << " " << Rwc.at<float>(2,2) << " "  << twc.at<float>(2) << endl;
-        }
-        f.close();
-    }*/
-
     void System::SaveTrajectoryKITTI(const string &filename)
     {
         cout << endl
@@ -1459,6 +1406,7 @@ namespace ORB_SLAM3
         f.close();
     }
 
+    // Helper method to get current tracking state
     int System::GetTrackingState()
     {
         unique_lock<mutex> lock(mMutexState);
@@ -1744,4 +1692,151 @@ namespace ORB_SLAM3
              << "Trajectory saved to " << filename << endl;
     }
 
-} // namespace ORB_SLAM
+    void System::EnableCuboidExport(bool enable)
+    {
+        mbCuboidExportEnabled = enable;
+    }
+
+    void System::SaveCurrentCuboids(int frame_id, const std::string &output_dir)
+    {
+        if (!mbCuboidExportEnabled)
+            return;
+
+        // Get current frame's cuboids in CAMERA frame
+        std::vector<ORB_SLAM3::Cuboid> camera_frame_cuboids;
+        {
+            std::unique_lock<std::mutex> lock(mMutexCuboids);
+            if (mCurrentFrameIdx >= 0 && mCurrentFrameIdx < mAllCuboids.size())
+            {
+                camera_frame_cuboids = mAllCuboids[mCurrentFrameIdx];
+            }
+        }
+
+        if (camera_frame_cuboids.empty())
+        {
+            std::cout << "No cuboids for frame " << frame_id << std::endl;
+            return;
+        }
+
+        // CRITICAL: Get the ESTIMATED camera pose from SLAM
+        Sophus::SE3f Tcw;
+        bool pose_valid = false;
+
+        if (mpTracker && mpTracker->mState == Tracking::OK)
+        {
+            // Direct access to current frame pose
+            Tcw = mpTracker->mCurrentFrame.GetPose();
+
+            // Validate pose (check for NaN/Inf)
+            Eigen::Matrix3f R = Tcw.rotationMatrix();
+            Eigen::Vector3f t = Tcw.translation();
+            
+            if (R.allFinite() && t.allFinite() && !Tcw.matrix().hasNaN())
+            {
+                pose_valid = true;
+            }
+            else
+            {
+                std::cout << "Warning: Pose contains NaN/Inf for frame " << frame_id << std::endl;
+            }
+
+            // Check if pose is valid (tracking succeeded)
+            int tracking_state = mpTracker->mState;
+            if (tracking_state == Tracking::OK || tracking_state == Tracking::RECENTLY_LOST)
+            {
+                pose_valid = true;
+            }
+        }
+
+        if (!pose_valid)
+        {
+            std::cout << "Warning: No valid pose for frame " << frame_id
+                      << " - skipping cuboid transform" << std::endl;
+            return;
+        }
+
+        // Transform Tcw (camera to world) to Twc (world to camera)
+        Sophus::SE3f Twc = Tcw.inverse();
+
+        // Extract rotation and translation
+        Eigen::Matrix3f Rwc = Twc.rotationMatrix();
+        Eigen::Vector3f twc = Twc.translation();
+
+        // Transform each cuboid from CAMERA frame to MAP/WORLD frame
+        std::vector<ORB_SLAM3::Cuboid> map_frame_cuboids;
+
+        for (const auto &cub_cam : camera_frame_cuboids)
+        {
+            ORB_SLAM3::Cuboid cub_map = cub_cam; // Copy metadata
+
+            // Transform center: p_world = R_wc * p_camera + t_wc
+            cub_map.center = Rwc * cub_cam.center + twc;
+
+            // Transform orientation: q_world = q_wc * q_camera
+            Eigen::Quaternionf q_wc(Rwc);
+            cub_map.rot = q_wc * cub_cam.rot;
+            cub_map.rot.normalize(); // Ensure unit quaternion
+
+            // Dimensions remain unchanged (they're in object's local frame)
+            // Confidence and class info remain unchanged
+
+            map_frame_cuboids.push_back(cub_map);
+        }
+
+        // Save the TRANSFORMED cuboids to JSON
+        std::stringstream ss;
+        ss << std::setfill('0') << std::setw(6) << frame_id;
+        std::string json_filename = output_dir + ss.str() + ".json";
+
+        // Create output directory if it doesn't exist
+        std::string mkdir_cmd = "mkdir -p " + output_dir;
+        system(mkdir_cmd.c_str());
+
+        // Write JSON file
+        nlohmann::json j;
+        j["frame"] = frame_id;
+        j["objects"] = nlohmann::json::array();
+
+        for (const auto &cub : map_frame_cuboids)
+        {
+            nlohmann::json obj;
+            obj["class"] = cub.class_name;
+            obj["class_id"] = cub.class_id;
+            obj["confidence"] = cub.confidence;
+
+            obj["center"] = {cub.center.x(), cub.center.y(), cub.center.z()};
+
+            obj["rotation"] = {
+                {"w", cub.rot.w()},
+                {"x", cub.rot.x()},
+                {"y", cub.rot.y()},
+                {"z", cub.rot.z()}};
+
+            obj["dimensions"] = {cub.dims.x(), cub.dims.y(), cub.dims.z()};
+
+            // Add track_id if available (from ByteTrack)
+            obj["track_id"] = cub.track_id;
+
+            j["objects"].push_back(obj);
+        }
+
+        // Write to file
+        std::ofstream file(json_filename);
+        if (file.is_open())
+        {
+            file << j.dump(2); // Pretty print with 2-space indent
+            file.close();
+
+            if (frame_id % 100 == 0)
+            {
+                std::cout << "Saved transformed cuboids for frame " << frame_id
+                          << " (" << map_frame_cuboids.size() << " objects)" << std::endl;
+            }
+        }
+        else
+        {
+            std::cerr << "Error: Could not write to " << json_filename << std::endl;
+        }
+    }
+
+} // namespace ORB_SLAM3

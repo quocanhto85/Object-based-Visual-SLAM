@@ -34,8 +34,8 @@ ThDepth: 40
 # ORB Parameters - OPTIMIZED FOR ACCURACY
 #--------------------------------------------------------------------------------------------
 
-# Increase features for better tracking (was 2000)
-ORBextractor.nFeatures: 3000
+# Increase features for better tracking (was 3000)
+ORBextractor.nFeatures: 5000
 
 # Smaller scale factor for finer scale detection (was 1.2)
 ORBextractor.scaleFactor: 1.15
@@ -55,10 +55,10 @@ ORBextractor.minThFAST: 5
 MinFrames: 0
 
 # Maximum frames between keyframes (force new KF)
-MaxFrames: 30
+MaxFrames: 10
 
 # Track quality thresholds
-TrackingQuality.minInliers: 100
+TrackingQuality.minInliers: 50
 TrackingQuality.minTrackedClose: 100
 TrackingQuality.minTrackedFar: 70
 
@@ -80,7 +80,7 @@ LocalMapping.RedundantThreshold: 0.95
 LoopClosing.Enabled: 1
 
 # Minimum score for loop acceptance
-LoopClosing.minScore: 0.25
+LoopClosing.minScore: 0.15
 
 # Consistency threshold
 LoopClosing.ConsistencyThreshold: 3

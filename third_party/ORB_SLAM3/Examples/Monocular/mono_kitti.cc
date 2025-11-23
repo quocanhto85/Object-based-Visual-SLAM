@@ -63,6 +63,9 @@ int main(int argc, char **argv)
     ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::MONOCULAR, true);
     float imageScale = SLAM.GetImageScale();
 
+    // Enable cuboid export
+    SLAM.EnableCuboidExport(true);
+
     // 3D_CUBOID //
     // START: Cuboid Data Pre-Loading with Enhanced Filtering
 
@@ -117,6 +120,17 @@ int main(int argc, char **argv)
                 cub.class_name = obj["class"];
                 cub.class_id = obj["class_id"];
                 cub.confidence = obj["confidence"];
+                
+                // 3D_CUBOID: Parse track_id (ByteTrack integration)
+                // Default to -1 if not present (backward compatibility with non-tracked JSON)
+                if (obj.contains("track_id"))
+                {
+                    cub.track_id = obj["track_id"];
+                }
+                else
+                {
+                    cub.track_id = -1; // No tracking information available
+                }
 
                 // Skip ignored classes
                 if (ignored_classes.count(cub.class_name) > 0)
@@ -180,16 +194,31 @@ int main(int argc, char **argv)
                 frames_with_cuboids++;
             }
 
-            // Debug output every 100 frames
-            if (ni % 100 == 0)
+            // Debug output every 100 frames (with track_id statistics)
+            if (ni % 100 == 0 && !frame_cubs.empty())
             {
-                cout << "Frame " << ni << ": " << frame_cubs.size() << " cuboids kept" << endl;
+                int tracked_count = 0;
+                for (const auto& c : frame_cubs) {
+                    if (c.track_id > 0) tracked_count++;
+                }
+                cout << "Frame " << ni << ": " << frame_cubs.size() << " cuboids kept, " 
+                     << tracked_count << " with track_id" << endl;
+            }
+        }
+
+        // Count total tracked cuboids
+        int total_tracked = 0;
+        for (const auto& frame_cubs : all_cuboids) {
+            for (const auto& cub : frame_cubs) {
+                if (cub.track_id > 0) total_tracked++;
             }
         }
 
         cout << "=== Cuboid Loading Complete ===" << endl;
         cout << "Frames with cuboids: " << frames_with_cuboids << "/" << nImages << endl;
         cout << "Total cuboids loaded: " << total_loaded << endl;
+        cout << "Total with track_id: " << total_tracked << " (" 
+             << (total_loaded > 0 ? (100.0f * total_tracked / total_loaded) : 0) << "%)" << endl;
         cout << "Total filtered out: " << total_filtered << endl;
         cout << "=================================" << endl;
     }
@@ -255,6 +284,9 @@ int main(int argc, char **argv)
         // Pass the image to the SLAM system
         SLAM.TrackMonocular(im, tframe, vector<ORB_SLAM3::IMU::Point>(), vstrImageFilenames[ni]);
 
+        // Save cuboids for this frame
+        SLAM.SaveCurrentCuboids(ni, "../../../../data/predicted_cuboids/");
+
         // --- Scale correction block (every 100 frames) ---
         // if (ni % 100 == 0) // Adjust interval as needed
         // {
@@ -300,8 +332,8 @@ int main(int argc, char **argv)
     cout << "mean tracking time: " << totaltime / nImages << endl;
 
     // Save camera trajectory
-    // SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
-    SLAM.SaveKeyFrameTrajectoryKITTI("KeyFrameTrajectory.txt");
+    SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+    // SLAM.SaveKeyFrameTrajectoryKITTI("KeyFrameTrajectory.txt");
 
     return 0;
 }
