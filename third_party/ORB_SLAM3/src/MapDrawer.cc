@@ -192,7 +192,6 @@ namespace ORB_SLAM3
 
         // --- INSERTED CODE: Draw Cuboids ---
         DrawCuboids();
-        // DrawAllCuboids();
         // -----------------------------------
     }
 
@@ -510,15 +509,30 @@ void MapDrawer::SetCuboidsForFrame(unsigned long frameId, const std::vector<ORB_
     // Add cuboids for this frame
     mCuboidMap[frameId] = cuboids;
     
-    // Auto-cleanup: keep only last MAX_STORED_CUBOID_FRAMES
+    // Track the most recent frame ID
+    if(frameId > mMostRecentFrameId)
+    {
+        mMostRecentFrameId = frameId;
+    }
+    
+    // Auto-cleanup: remove frames older than (mMostRecentFrameId - MAX_STORED_CUBOID_FRAMES)
     if(mCuboidMap.size() > MAX_STORED_CUBOID_FRAMES)
     {
-        // Remove oldest frames
+        unsigned long minFrameIdToKeep = (mMostRecentFrameId > MAX_STORED_CUBOID_FRAMES) 
+                                          ? (mMostRecentFrameId - MAX_STORED_CUBOID_FRAMES) 
+                                          : 0;
+        
         auto it = mCuboidMap.begin();
-        int toRemove = mCuboidMap.size() - MAX_STORED_CUBOID_FRAMES;
-        for(int i = 0; i < toRemove; i++)
+        while(it != mCuboidMap.end())
         {
-            it = mCuboidMap.erase(it);
+            if(it->first < minFrameIdToKeep)
+            {
+                it = mCuboidMap.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
     }
 }
@@ -553,23 +567,40 @@ void MapDrawer::ClearOldCuboids(int keepLastNFrames)
 {
     unique_lock<mutex> lock(mMutexCuboids);
     
-    if(mCuboidMap.size() <= keepLastNFrames)
+    if(mCuboidMap.empty())
         return;
     
-    // Keep only the last N frames
+    // Remove frames older than (mMostRecentFrameId - keepLastNFrames)
+    unsigned long minFrameIdToKeep = (mMostRecentFrameId > keepLastNFrames) 
+                                      ? (mMostRecentFrameId - keepLastNFrames) 
+                                      : 0;
+    
     auto it = mCuboidMap.begin();
-    int framesToRemove = mCuboidMap.size() - keepLastNFrames;
-    for(int i = 0; i < framesToRemove; i++)
+    int removedCount = 0;
+    while(it != mCuboidMap.end())
     {
-        it = mCuboidMap.erase(it);
+        if(it->first < minFrameIdToKeep)
+        {
+            it = mCuboidMap.erase(it);
+            removedCount++;
+        }
+        else
+        {
+            ++it;
+        }
     }
     
-    std::cout << "Cleared old cuboids. Now storing " << mCuboidMap.size() << " frames." << std::endl;
+    if(removedCount > 0)
+    {
+        std::cout << "Cleared " << removedCount << " old cuboid frames. "
+                  << "Now storing " << mCuboidMap.size() << " frames." << std::endl;
+    }
 }
 
 void MapDrawer::DrawCuboids()
 {
     unique_lock<mutex> lock(mMutexCuboids);
+    unique_lock<mutex> lockCamera(mMutexCamera);
     
     if(mCuboidMap.empty())
         return;
@@ -579,27 +610,38 @@ void MapDrawer::DrawCuboids()
     // Try to find cuboids for the current frame
     auto it = mCuboidMap.find(currentFrameId);
     
-    // If not found, use the most recent frame
+    // If not found, use the tracked most recent frame
     if(it == mCuboidMap.end())
     {
         if(mCuboidMap.empty())
             return;
         
-        // Get the most recent frame (last element in map)
-        it = std::prev(mCuboidMap.end());
+        it = mCuboidMap.find(mMostRecentFrameId);
         
-        // Debug output
+        if(it == mCuboidMap.end())
+        {
+            it = mCuboidMap.upper_bound(currentFrameId);
+            if(it != mCuboidMap.begin())
+            {
+                --it;
+            }
+            else
+            {
+                it = mCuboidMap.begin();
+            }
+        }
+        
         static int missCount = 0;
         if(missCount++ % 30 == 0)
         {
             std::cout << "DrawCuboids: Frame " << currentFrameId << " not in map. "
                       << "Using frame " << it->first << " instead. "
-                      << "Map size: " << mCuboidMap.size() << std::endl;
+                      << "Map size: " << mCuboidMap.size() 
+                      << ", Most recent tracked: " << mMostRecentFrameId << std::endl;
         }
     }
     else
     {
-        // Debug output when frame is found
         static int hitCount = 0;
         if(hitCount++ % 30 == 0)
         {
@@ -611,17 +653,21 @@ void MapDrawer::DrawCuboids()
     
     const vector<ORB_SLAM3::Cuboid>& frameCuboids = it->second;
     
-    // Skip if no cuboids
     if(frameCuboids.empty())
         return;
     
-    // Safety check to prevent drawing too many cuboids
     if(frameCuboids.size() > 50)
     {
         std::cerr << "WARNING: Too many cuboids (" << frameCuboids.size() 
                   << ") in frame " << it->first << ". Skipping draw." << std::endl;
         return;
     }
+    
+    // CRITICAL FIX: Transform from camera frame to world frame
+    // mCameraPose is Tcw (camera-to-world transform)
+    Sophus::SE3f Twc = mCameraPose.inverse();
+    Eigen::Matrix3f Rwc = Twc.rotationMatrix();
+    Eigen::Vector3f twc = Twc.translation();
     
     glLineWidth(3.0f);
     glEnable(GL_BLEND);
@@ -631,7 +677,6 @@ void MapDrawer::DrawCuboids()
     
     for(const auto& cuboid : frameCuboids)
     {
-        // Skip low confidence detections
         if(cuboid.confidence < 0.5)
             continue;
         
@@ -672,15 +717,15 @@ void MapDrawer::DrawCuboids()
         }
         else
         {
-            glColor4f(0.7f, 0.7f, 0.7f, alpha); // Gray for others
+            glColor4f(0.7f, 0.7f, 0.7f, alpha); // Gray
         }
         
-        // Get cuboid parameters
-        Eigen::Vector3f center = cuboid.center;
+        // CRITICAL: Transform cuboid from camera frame to world frame
+        Eigen::Vector3f center_world = Rwc * cuboid.center + twc;
+        Eigen::Quaternionf rotation_world = Eigen::Quaternionf(Rwc) * cuboid.rot;
         Eigen::Vector3f dims = cuboid.dims;
-        Eigen::Quaternionf rotation = cuboid.rot;
         
-        // Create 8 corners of the cuboid in local coordinates
+        // Create 8 corners in local coordinates
         Eigen::Vector3f corners[8];
         corners[0] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2, -dims[2]/2);
         corners[1] = Eigen::Vector3f( dims[0]/2, -dims[1]/2, -dims[2]/2);
@@ -694,7 +739,7 @@ void MapDrawer::DrawCuboids()
         // Transform corners to world coordinates
         for(int i = 0; i < 8; i++)
         {
-            corners[i] = rotation * corners[i] + center;
+            corners[i] = rotation_world * corners[i] + center_world;
         }
         
         // Draw cuboid wireframe
@@ -741,7 +786,7 @@ void MapDrawer::DrawCuboids()
         
         glEnd();
         
-        // Draw diagonal lines on front face for better visibility
+        // Draw diagonal lines on front face
         glLineWidth(1.5f);
         glBegin(GL_LINES);
         glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
@@ -756,164 +801,5 @@ void MapDrawer::DrawCuboids()
     glLineWidth(1.0f);
 }
 
-void MapDrawer::DrawAllCuboids()
-{
-    unique_lock<mutex> lock(mMutexCuboids);
-    
-    if(mCuboidMap.empty())
-        return;
-    
-    std::cout << "DrawAllCuboids: Drawing " << mCuboidMap.size() << " frames of cuboids" << std::endl;
-    
-    glLineWidth(2.0f);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    
-    int totalDrawn = 0;
-    
-    // Iterate through all frames
-    for(const auto& framePair : mCuboidMap)
-    {
-        const unsigned long frameId = framePair.first;
-        const vector<ORB_SLAM3::Cuboid>& frameCuboids = framePair.second;
-        
-        if(frameCuboids.empty())
-            continue;
-        
-        // Determine alpha based on how old the frame is
-        // Current frame: full opacity, older frames: more transparent
-        unsigned long currentFrameId = GetCurrentFrameId();
-        float alpha = 0.7f; // Default transparency for all frames
-        
-        // Make current frame more visible
-        if(frameId == currentFrameId)
-            alpha = 1.0f;
-        
-        for(const auto& cuboid : frameCuboids)
-        {
-            // Skip low confidence detections
-            if(cuboid.confidence < 0.5)
-                continue;
-            
-            // Set color based on class with alpha
-            if(cuboid.class_name == "Car" || cuboid.class_name == "car")
-            {
-                glColor4f(1.0f, 0.0f, 0.0f, alpha); // Red
-            }
-            else if(cuboid.class_name == "Cyclist" || cuboid.class_name == "cyclist")
-            {
-                glColor4f(0.0f, 1.0f, 0.0f, alpha); // Green
-            }
-            else if(cuboid.class_name == "Pedestrian" || cuboid.class_name == "pedestrian" ||
-                    cuboid.class_name == "Person" || cuboid.class_name == "person")
-            {
-                glColor4f(0.0f, 0.0f, 1.0f, alpha); // Blue
-            }
-            else if(cuboid.class_name == "Van" || cuboid.class_name == "van")
-            {
-                glColor4f(1.0f, 0.5f, 0.0f, alpha); // Orange
-            }
-            else if(cuboid.class_name == "Truck" || cuboid.class_name == "truck")
-            {
-                glColor4f(0.5f, 0.0f, 0.5f, alpha); // Purple
-            }
-            else if(cuboid.class_name == "Bike" || cuboid.class_name == "bike" ||
-                    cuboid.class_name == "Bicycle" || cuboid.class_name == "bicycle")
-            {
-                glColor4f(0.0f, 1.0f, 1.0f, alpha); // Cyan
-            }
-            else if(cuboid.class_name == "Traffic Light" || cuboid.class_name == "traffic light")
-            {
-                glColor4f(1.0f, 1.0f, 0.0f, alpha); // Yellow
-            }
-            else if(cuboid.class_name == "Traffic Sign" || cuboid.class_name == "traffic sign")
-            {
-                glColor4f(1.0f, 0.5f, 1.0f, alpha); // Magenta
-            }
-            else
-            {
-                glColor4f(0.7f, 0.7f, 0.7f, alpha); // Gray for others
-            }
-            
-            // Get cuboid parameters
-            Eigen::Vector3f center = cuboid.center;
-            Eigen::Vector3f dims = cuboid.dims;
-            Eigen::Quaternionf rotation = cuboid.rot;
-            
-            // Create 8 corners of the cuboid in local coordinates
-            Eigen::Vector3f corners[8];
-            corners[0] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2, -dims[2]/2);
-            corners[1] = Eigen::Vector3f( dims[0]/2, -dims[1]/2, -dims[2]/2);
-            corners[2] = Eigen::Vector3f( dims[0]/2,  dims[1]/2, -dims[2]/2);
-            corners[3] = Eigen::Vector3f(-dims[0]/2,  dims[1]/2, -dims[2]/2);
-            corners[4] = Eigen::Vector3f(-dims[0]/2, -dims[1]/2,  dims[2]/2);
-            corners[5] = Eigen::Vector3f( dims[0]/2, -dims[1]/2,  dims[2]/2);
-            corners[6] = Eigen::Vector3f( dims[0]/2,  dims[1]/2,  dims[2]/2);
-            corners[7] = Eigen::Vector3f(-dims[0]/2,  dims[1]/2,  dims[2]/2);
-            
-            // Transform corners to world coordinates
-            for(int i = 0; i < 8; i++)
-            {
-                corners[i] = rotation * corners[i] + center;
-            }
-            
-            // Draw cuboid wireframe
-            glBegin(GL_LINES);
-            
-            // Bottom face
-            glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
-            glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
-            
-            glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
-            glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
-            
-            glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
-            glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
-            
-            glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
-            glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
-            
-            // Top face
-            glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
-            glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
-            
-            glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
-            glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
-            
-            glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
-            glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
-            
-            glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
-            glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
-            
-            // Vertical edges
-            glVertex3f(corners[0][0], corners[0][1], corners[0][2]);
-            glVertex3f(corners[4][0], corners[4][1], corners[4][2]);
-            
-            glVertex3f(corners[1][0], corners[1][1], corners[1][2]);
-            glVertex3f(corners[5][0], corners[5][1], corners[5][2]);
-            
-            glVertex3f(corners[2][0], corners[2][1], corners[2][2]);
-            glVertex3f(corners[6][0], corners[6][1], corners[6][2]);
-            
-            glVertex3f(corners[3][0], corners[3][1], corners[3][2]);
-            glVertex3f(corners[7][0], corners[7][1], corners[7][2]);
-            
-            glEnd();
-            
-            totalDrawn++;
-        }
-    }
-    
-    glDisable(GL_BLEND);
-    glLineWidth(1.0f);
-    
-    static int debug_count = 0;
-    if(debug_count++ % 30 == 0)
-    {
-        std::cout << "Drew " << totalDrawn << " total cuboids from " 
-                  << mCuboidMap.size() << " frames" << std::endl;
-    }
-}
 
 } // namespace ORB_SLAM

@@ -108,6 +108,11 @@ public:
 
     float GetImageScale();
 
+    Sophus::SE3f GetCurrentPose()
+    {
+        return mCurrentFrame.GetPose();
+    }
+
 #ifdef REGISTER_LOOP
     void RequestStop();
     bool isStopped();
