@@ -83,17 +83,17 @@ def create_plots(errors, output_dir, title_suffix=''):
     print("GENERATING PLOTS")
     print("-"*80)
     
-    # Create figure
+    # Create figure with extra top spacing
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(f'RPE (Relative Pose Error) - 100m Trajectory Segment{title_suffix}', 
-                 fontsize=16, fontweight='bold')
+                 fontsize=16, fontweight='bold', y=0.98)
     
     # Plot 1: Error timeline
     ax = axes[0, 0]
     ax.plot(errors, 'b-', linewidth=1)
     ax.set_xlabel('Pose Index')
     ax.set_ylabel('RPE (m)')
-    ax.set_title(f'RPE Over Pose Sequence{title_suffix}')
+    ax.set_title('RPE Over Pose Sequence')
     ax.grid(True, alpha=0.3)
     
     # Plot 2: Histogram
@@ -101,7 +101,7 @@ def create_plots(errors, output_dir, title_suffix=''):
     ax.hist(errors, bins=50, color='green', alpha=0.7, edgecolor='black')
     ax.set_xlabel('RPE (m)')
     ax.set_ylabel('Frequency')
-    ax.set_title(f'Error Distribution{title_suffix}')
+    ax.set_title('Error Distribution')
     ax.grid(True, alpha=0.3, axis='y')
     
     # Plot 3: Cumulative distribution
@@ -111,27 +111,15 @@ def create_plots(errors, output_dir, title_suffix=''):
     ax.plot(sorted_errors, cumsum, 'r-', linewidth=2)
     ax.set_xlabel('RPE (m)')
     ax.set_ylabel('Cumulative Percentage (%)')
-    ax.set_title(f'Cumulative Error Distribution{title_suffix}')
+    ax.set_title('Cumulative Error Distribution')
     ax.grid(True, alpha=0.3)
     
     # Plot 4: Statistics box
     ax = axes[1, 1]
     ax.axis('off')
     
-    mean_error = np.mean(errors)
-    if mean_error < 0.05:
-        perf = "✓ EXCELLENT"
-    elif mean_error < 0.1:
-        perf = "✓ GOOD"
-    elif mean_error < 0.5:
-        perf = "⚠️ ACCEPTABLE"
-    elif mean_error < 1.0:
-        perf = "⚠️ POOR"
-    else:
-        perf = "❌ VERY POOR"
-    
     stats_text = f"""
-RPE Statistics Summary (100m){title_suffix}
+RPE Statistics Summary (100m)
 
 Mean Error:        {np.mean(errors):.4f} m
 Median Error:      {np.median(errors):.4f} m
@@ -143,9 +131,6 @@ Max Error:         {np.max(errors):.4f} m
 Range:             {np.max(errors) - np.min(errors):.4f} m
 
 Total Poses:       {len(errors)}
-
-Performance Level:
-{perf}
     """
     
     ax.text(0.1, 0.5, stats_text, fontsize=11, family='monospace',
@@ -153,7 +138,7 @@ Performance Level:
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plot_path = os.path.join(output_dir, 'rpe_100m_analysis.png')
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     print(f"✓ Saved: {plot_path}")
     plt.close()

@@ -526,9 +526,16 @@ def fix_pose_mismatch(gt_path, kf_path, output_dir='./', auto_transform=True, ou
     print(f"  3. Uniform sampling: {target_length} poses")
     
     print(f"\n📊 Ready for evaluation:")
+    print(f"\n APE evaluation:")
     print(f"\n  evo_ape kitti {gt_output} {kf_output} \\")
     print(f"      --correct_scale -a --pose_relation trans_part \\")
-    print(f"      -va --plot --plot_mode xz --save_results results/corrected_result.zip")
+    print(f"      -va --plot --plot_mode xz --save_results results/ate_result.zip")
+    
+    
+    print(f"\n📊 RPE evaluation:")
+    print(f"\n  evo_rpe kitti {gt_output} {kf_output} \\")
+    print(f"      --delta 100 --delta_unit m --correct_scale -a --pose_relation trans_part \\")
+    print(f"      -va --plot --plot_mode xyz --save_results results/rpe_100m.zip")
     
     return {
         'transform_applied': transform_type,
