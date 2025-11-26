@@ -14,7 +14,8 @@ Usage:
     python run_evaluation_pipeline.py --gt_dir /path/to/ground_truth \
                                       --pred_dir /path/to/predicted \
                                       --output_dir /path/to/output \
-                                      --sequence 08
+                                      --sequence 08 \
+                                      --title "ORB-SLAM3 with Dynamic Multi-Object Tracking"
 """
 
 import argparse
@@ -56,20 +57,25 @@ def check_directories(gt_dir, pred_dir, output_dir):
     return True
 
 
-def generate_markdown_report(results, output_path):
+def generate_markdown_report(results, output_path, title=None):
     """
     Generate a comprehensive markdown report.
     
     Args:
         results: Evaluation results dictionary
         output_path: Path to save the markdown report
+        title: Optional custom title for the evaluation
     """
     summary = results['summary']
     sequence = results['sequence']
     
+    # Use custom title if provided, otherwise use sequence name
+    report_title = title if title else f"KITTI {sequence}"
+    
     report = f"""# Object-based Visual SLAM Evaluation Report
 
-## Sequence Information
+## Evaluation Configuration
+- **System**: {report_title}
 - **Sequence**: KITTI {sequence}
 - **Total Frames**: {summary['total_frames']}
 - **Evaluation Date**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -197,10 +203,12 @@ def main():
                        help='Directory for saving evaluation results')
     parser.add_argument('--sequence', type=str, default='08',
                        help='KITTI sequence name (default: 08)')
+    parser.add_argument('--title', type=str, default=None,
+                       help='Custom title for evaluation (e.g., "ORB-SLAM3 with Dynamic Multi-Object Tracking")')
     parser.add_argument('--pred_dir_before', type=str, default=None,
                        help='Optional: Predictions before ByteTrack for comparison')
     parser.add_argument('--generate_report', action='store_true',
-                       help='Generate markdown report (default: True)')
+                       help='Generate markdown report')
     
     args = parser.parse_args()
     
@@ -217,6 +225,8 @@ def main():
     print(f"  Predictions:  {args.pred_dir}")
     print(f"  Output:       {args.output_dir}")
     print(f"  Sequence:     {args.sequence}")
+    if args.title:
+        print(f"  Title:        {args.title}")
     
     # Run main evaluation
     print("\n" + "="*70)
@@ -227,7 +237,8 @@ def main():
         args.gt_dir,
         args.pred_dir,
         args.output_dir,
-        args.sequence
+        args.sequence,
+        title=args.title
     )
     
     if not results:
@@ -251,7 +262,7 @@ def main():
             args.output_dir, 
             f"evaluation_report_{args.sequence}.md"
         )
-        generate_markdown_report(results, report_path)
+        generate_markdown_report(results, report_path, title=args.title)
     
     # Optional: Compare before/after ByteTrack
     if args.pred_dir_before:
@@ -263,7 +274,8 @@ def main():
             args.gt_dir,
             args.pred_dir_before,
             args.output_dir,
-            args.sequence + "_before"
+            args.sequence + "_before",
+            title=args.title
         )
         
         if results_before:

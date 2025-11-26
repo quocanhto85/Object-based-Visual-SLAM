@@ -89,7 +89,7 @@ def analyze_ate_results(results_dir='results', title_suffix=''):
         ax.plot(errors, 'b-', linewidth=1)
         ax.set_xlabel('Frame Index')
         ax.set_ylabel('Error (m)')
-        ax.set_title(f'APE Over Time{title_suffix}')
+        ax.set_title(f'APE Over Time')
         ax.grid(True, alpha=0.3)
         
         # Plot 2: Histogram
@@ -97,7 +97,7 @@ def analyze_ate_results(results_dir='results', title_suffix=''):
         ax.hist(errors, bins=50, color='green', alpha=0.7, edgecolor='black')
         ax.set_xlabel('Error (m)')
         ax.set_ylabel('Frequency')
-        ax.set_title(f'Error Distribution{title_suffix}')
+        ax.set_title(f'Error Distribution')
         ax.grid(True, alpha=0.3, axis='y')
         
         # Plot 3: Cumulative distribution
@@ -107,7 +107,7 @@ def analyze_ate_results(results_dir='results', title_suffix=''):
         ax.plot(sorted_errors, cumsum, 'r-', linewidth=2)
         ax.set_xlabel('Error (m)')
         ax.set_ylabel('Cumulative Percentage (%)')
-        ax.set_title(f'Cumulative Error Distribution{title_suffix}')
+        ax.set_title(f'Cumulative Error Distribution')
         ax.grid(True, alpha=0.3)
         
         # Plot 4: Statistics summary
@@ -115,7 +115,7 @@ def analyze_ate_results(results_dir='results', title_suffix=''):
         ax.axis('off')
         
         stats_text = f"""
-APE Statistics Summary{title_suffix}
+APE Statistics Summary
 
 Mean Error:        {np.mean(errors):.4f} m
 Median Error:      {np.median(errors):.4f} m

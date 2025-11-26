@@ -219,7 +219,7 @@ class ObjectDetectionEvaluator:
 
 
 def evaluate_sequence(gt_dir: str, pred_dir: str, output_dir: str, 
-                     sequence_name: str = "08") -> Dict:
+                     sequence_name: str = "08", title: str = None) -> Dict:
     """
     Evaluate entire KITTI sequence.
     
@@ -228,12 +228,17 @@ def evaluate_sequence(gt_dir: str, pred_dir: str, output_dir: str,
         pred_dir: Directory containing predicted cuboid JSON files
         output_dir: Directory for saving results
         sequence_name: KITTI sequence identifier
+        title: Optional custom title for evaluation
         
     Returns:
         results: Complete evaluation results
     """
+    # Use custom title if provided
+    display_name = title if title else f"KITTI {sequence_name}"
+    
     print(f"\n{'='*60}")
-    print(f"Evaluating KITTI Sequence {sequence_name}")
+    print(f"Evaluating: {display_name}")
+    print(f"Sequence: {sequence_name}")
     print(f"{'='*60}\n")
     
     # Create output directory
@@ -302,6 +307,7 @@ def evaluate_sequence(gt_dir: str, pred_dir: str, output_dir: str,
     # Save results
     results = {
         'sequence': sequence_name,
+        'title': title,
         'summary': summary,
         'frame_details': frame_details
     }
@@ -324,6 +330,11 @@ def plot_evaluation_results(results: Dict, output_dir: str):
         output_dir: Directory for saving plots
     """
     frame_details = results['frame_details']
+    sequence = results['sequence']
+    title = results.get('title')
+    
+    # Use custom title if provided
+    display_title = title if title else f"KITTI {sequence}"
     
     # Extract data
     frame_ids = [f['frame_id'] for f in frame_details]
@@ -333,8 +344,8 @@ def plot_evaluation_results(results: Dict, output_dir: str):
     
     # Create figure with subplots
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle(f"3D Object Detection Evaluation - Sequence {results['sequence']}", 
-                 fontsize=16, fontweight='bold')
+    fig.suptitle(f"3D Object Detection Evaluation - {display_title}", 
+                 fontsize=16, fontweight='bold', y=0.995)
     
     # Plot 1: IoU over time
     ax1 = axes[0, 0]
@@ -393,7 +404,7 @@ def plot_evaluation_results(results: Dict, output_dir: str):
     plt.tight_layout()
     
     # Save figure
-    plot_file = os.path.join(output_dir, f"evaluation_plots_{results['sequence']}.png")
+    plot_file = os.path.join(output_dir, f"evaluation_plots_{sequence}.png")
     plt.savefig(plot_file, dpi=300, bbox_inches='tight')
     print(f"✓ Plots saved to: {plot_file}")
     
@@ -484,7 +495,8 @@ if __name__ == "__main__":
     OUTPUT_DIR = "/mnt/user-data/outputs/evaluation_results"
     
     # Run evaluation
-    # results = evaluate_sequence(GT_DIR, PRED_DIR, OUTPUT_DIR, sequence_name="08")
+    # results = evaluate_sequence(GT_DIR, PRED_DIR, OUTPUT_DIR, sequence_name="08",
+    #                             title="ORB-SLAM3 with Dynamic Multi-Object Tracking")
     
     # Plot results
     # plot_evaluation_results(results, OUTPUT_DIR)
