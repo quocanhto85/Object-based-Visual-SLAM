@@ -663,7 +663,7 @@ void MapDrawer::DrawCuboids()
         return;
     }
     
-    // CRITICAL FIX: Transform from camera frame to world frame
+    // Transform from camera frame to world frame
     // mCameraPose is Tcw (camera-to-world transform)
     Sophus::SE3f Twc = mCameraPose.inverse();
     Eigen::Matrix3f Rwc = Twc.rotationMatrix();

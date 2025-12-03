@@ -58,7 +58,6 @@ public:
     // New map-based methods (recommended)
     void SetCuboidsForFrame(unsigned long frameId, const std::vector<ORB_SLAM3::Cuboid>& cuboids);
     void DrawCuboids();
-    void DrawAllCuboids();
     void ClearOldCuboids(int keepLastNFrames = 30);
     
     // Backward compatibility methods (deprecated, but maintained for existing code)

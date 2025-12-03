@@ -164,6 +164,8 @@ void Viewer::Run()
     mbFinished = false;
     mbStopped = false;
 
+    // cv::namedWindow("ORB-SLAM3: Current Frame", cv::WINDOW_FREERATIO);
+
     pangolin::CreateWindowAndBind("ORB-SLAM3: Map Viewer",1024,768);
 
     // 3D Mouse handler requires depth testing to be enabled
