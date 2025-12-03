@@ -1,0 +1,1 @@
+{"title": "RPE w.r.t. translation part (m)\nfor delta = 100.0 (m) using consecutive pairs\n(with Sim(3) Umeyama alignment)", "ref_name": "./experiment_outputs/gt_corrected.txt", "est_name": "./experiment_outputs/kf_corrected.txt", "label": "RPE (m)"}

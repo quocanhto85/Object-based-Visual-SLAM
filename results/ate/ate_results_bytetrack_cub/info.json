@@ -1,0 +1,1 @@
+{"title": "APE w.r.t. translation part (m)\n(with Sim(3) Umeyama alignment)", "ref_name": "./experiment_outputs/gt_corrected.txt", "est_name": "./experiment_outputs/kf_corrected.txt", "label": "APE (m)"}
