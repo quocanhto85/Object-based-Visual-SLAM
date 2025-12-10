@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  orbslam3:
+    image: orbslam3-base:latest
+    container_name: orbslam3-dev
+    platform: linux/arm64
+    stdin_open: true
+    tty: true
+    environment:
+      # For macOS, use host.docker.internal
+      - DISPLAY=host.docker.internal:0
+      - LIBGL_ALWAYS_INDIRECT=1
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - ./third_party/ORB_SLAM3:/workspace/ORB_SLAM3
+      - ./data:/data
+      # Mount X11 socket
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    working_dir: /workspace/ORB_SLAM3
+    command: /bin/bash -c "tail -f /dev/null"
