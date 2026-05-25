@@ -289,7 +289,7 @@ cd ../Examples/Monocular
 
 The native build crashed inside Pangolin with `NSInternalInconsistencyException` because macOS requires all UI calls on the main thread, while Pangolin's viewer thread is not the main thread under AppKit on Apple Silicon. To stabilise the environment, we containerised the entire toolchain.
 
-![Pangolin NSInternalInconsistencyException on Apple Silicon](https://i.imgur.com/PLACEHOLDER_pangolin_issue.png)
+![Pangolin NSInternalInconsistencyException on Apple Silicon](https://imgur.com/M4UxT8D.png)
 <!-- pictures/pangolin_issue.png -->
 
 **Prerequisites**
@@ -331,7 +331,7 @@ cd /workspace/ORB_SLAM3/build
 cmake .. -DCMAKE_BUILD_TYPE=Release && make -j4
 ```
 
-![Docker bind-mounts (X11 socket, ORB-SLAM3 source, data)](https://i.imgur.com/PLACEHOLDER_mounting_volumes.png)
+![Docker bind-mounts (X11 socket, ORB-SLAM3 source, data)](https://imgur.com/ubQeLQc.png)
 <!-- pictures/mounting_volumes.png -->
 
 **Restarting cleanly:**
@@ -370,13 +370,13 @@ Data flow of the integration: `mono_kitti → System → Viewer → MapDrawer / 
 
 Qualitative outputs of the three experiments live in `pictures/orbslam3_running/`:
 
-![Experiment 1 — Static cuboid landmarks](https://i.imgur.com/PLACEHOLDER_origin_cub.png)
+![Experiment 1 — Static cuboid landmarks](https://imgur.com/rzO1qS7.png)
 <!-- pictures/orbslam3_running/origin_cub.png -->
 
-![Experiment 2 — Dynamic ByteTrack tracking](https://i.imgur.com/PLACEHOLDER_bytetrack_cub.png)
+![Experiment 2 — Dynamic ByteTrack tracking](https://imgur.com/J0LGuEl.png)
 <!-- pictures/orbslam3_running/bytetrack_cub.png -->
 
-![Experiment 3 — Adelaide tram route](https://i.imgur.com/PLACEHOLDER_adelaide_cub_1.png)
+![Experiment 3 — Adelaide street route](https://imgur.com/34r0LTN.png)
 <!-- pictures/orbslam3_running/adelaide_cub_1.png -->
 
 #### Troubleshooting (Docker + XQuartz)
@@ -558,8 +558,8 @@ LIBGL_ALWAYS_INDIRECT=1 ./mono_kitti ../../Vocabulary/ORBvoc.txt Adelaide.yaml \
 
 The system successfully tracks trams, cars, and cyclists with persistent IDs across frames; minor false positives (e.g. Adelaide Metro bus misclassified as a truck, traffic-sign pole as a cyclist) are still excluded from the static map and therefore do not corrupt the point cloud.
 
-![Adelaide qualitative result — busy tram corridor](https://i.imgur.com/PLACEHOLDER_adelaide_cub_3.png)
-<!-- pictures/orbslam3_running/adelaide_cub_3.png -->
+![Adelaide qualitative result — busy tram corridor](https://imgur.com/InC22FJ.png)
+<!-- pictures/orbslam3_running/adelaide_cub_2.png -->
 
 ---
 
