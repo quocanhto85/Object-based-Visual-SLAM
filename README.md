@@ -15,7 +15,7 @@ The end-to-end pipeline follows four stages:
 
 This repository contains the code, configs, notebooks, Docker setup, and supporting materials for all four stages — together with the trained YOLOv8 weights, processed datasets, and evaluation artefacts that back the accompanying thesis.
 
-> **Platform note.** All work was developed on **macOS (Apple Silicon, M1 Pro, 16 GB RAM)**. Some configuration steps below (Homebrew paths, XQuartz, `linux/arm64` Docker platform, `evo` `macosx` backend) are macOS-specific. Linux and Windows users will need to adapt the OpenCV/Pangolin paths, X-server, and Docker `--platform` flags accordingly.
+> **Platform note.** This work was developed on **macOS (Apple Silicon, M1 Pro, 16 GB RAM)**. Some configuration steps below (Homebrew paths, XQuartz, `linux/arm64` Docker platform, `evo` `macosx` backend) are macOS-specific. Linux and Windows users will need to adapt the OpenCV/Pangolin paths, X-server, and Docker `--platform` flags accordingly.
 
 ---
 
@@ -228,7 +228,7 @@ Output: per-frame JSONs in `data/bbox_outputs_bytetrack/` augmented with persist
 
 Output: `data/cuboid_outputs/` (static baseline) and `data/cuboid_outputs_bytetrack/` (with tracking IDs) — each JSON contains 6-DoF pose + dimensions per cuboid, ready to be consumed by the modified `mono_kitti`.
 
-![Stage 2 → 3 cuboid integration diagram](https://i.imgur.com/PLACEHOLDER_3D_cuboids_integration.png)
+![Stage 2 → 3 cuboid integration diagram](https://imgur.com/a/DtacfYu.png)
 <!-- pictures/3D_cuboids_integration.png -->
 
 ---
