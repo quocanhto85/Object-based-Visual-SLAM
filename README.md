@@ -96,7 +96,9 @@ Open the code with Visual Studio Code (or other IDEs that suit your needs) and i
 
 ![Code](https://i.imgur.com/Cc5bq7R.png)
 
-## Implementation Workflow
+## Stage 1 — Object Detection (YOLOv8)
+
+Stage 1 builds the perception front-end of the pipeline: a YOLOv8 detector trained on **BDD100K** and cross-evaluated on **KITTI** to ensure it generalises across urban driving domains. The output is the weights file that Stage 2 consumes for per-frame 2D bounding-box extraction.
 
 #### ➤ Step 1: Exploratory Data Analysis (EDA)
 Use `SLAM.ipynb` to explore and visualise both datasets. This includes:
