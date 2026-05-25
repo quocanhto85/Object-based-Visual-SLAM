@@ -228,7 +228,7 @@ Output: per-frame JSONs in `data/bbox_outputs_bytetrack/` augmented with persist
 
 Output: `data/cuboid_outputs/` (static baseline) and `data/cuboid_outputs_bytetrack/` (with tracking IDs) — each JSON contains 6-DoF pose + dimensions per cuboid, ready to be consumed by the modified `mono_kitti`.
 
-![Stage 2 → 3 cuboid integration diagram](https://imgur.com/DtacfYu.png)
+![Stage 2 → 3 cuboid integration diagram](https://imgur.com/W3MPKw0.png)
 <!-- pictures/3D_cuboids_integration.png -->
 
 ---
