@@ -47,7 +47,7 @@ The repository is organised around the four pipeline stages. The most relevant e
 
 ### ORB-SLAM3 integration (`third_party/`)
 
-- `third_party/ORB_SLAM3/` — Cloned and **modified** UZ-SLAMLab/ORB_SLAM3 with our cuboid integration patches to `MapDrawer`, `FrameDrawer`, `System`, `Viewer`, and `Examples/Monocular/mono_kitti.cc`.
+- `third_party/ORB_SLAM3/` — Cloned and **modified** UZ-SLAMLab/ORB_SLAM3 with my cuboid integration patches to `MapDrawer`, `FrameDrawer`, `System`, `Viewer`, and `Examples/Monocular/mono_kitti.cc`.
 - `third_party/Pangolin/` — Pinned to **v0.6** for ARM64/Docker stability.
 
 ### Containerisation
@@ -195,7 +195,7 @@ Example findings:
 - `mAP50–95`: Averages mAP over IoU thresholds from 50% to 95%
 - Cross-dataset generalisation: E.g., YOLOv8 trained on **BDD100K** and evaluated on **KITTI** to assess robustness
 
-In our cross-dataset protocol, **YOLOv8x trained on BDD100K and evaluated on KITTI (Exp 2)** is the weight we propagate downstream — it sacrifices ~5 mAP50 versus the in-domain run but is more reliable on unseen urban geometry, which is exactly the regime our SLAM pipeline operates in.
+In my cross-dataset protocol, **YOLOv8x trained on BDD100K and evaluated on KITTI (Exp 2)** is the weight I propagate downstream — it sacrifices ~5 mAP50 versus the in-domain run but is more reliable on unseen urban geometry, which is exactly the regime my SLAM pipeline operates in.
 
 ---
 
@@ -214,7 +214,7 @@ Run inference on KITTI odometry sequence 08 (4 071 frames) with the YOLOv8x weig
 
 #### ➤ Step 2.2 — Simplified ByteTrack Multi-Object Tracking
 
-Instead of full Kalman-filter ByteTrack, we use a non-parametric two-stage IoU matcher:
+Instead of full Kalman-filter ByteTrack, I use a non-parametric two-stage IoU matcher:
 
 - **High-confidence pass** (`conf ≥ τ_h = 0.6`) — matched against existing tracks via the **Hungarian algorithm** on an IoU cost matrix.
 - **Low-confidence pass** (`τ_l = 0.1 ≤ conf < τ_h`) — recovers partially occluded objects by re-matching unmatched tracks against leftover detections.
@@ -244,7 +244,7 @@ Stage 3 fuses the 3D cuboids into a modified ORB-SLAM3 (monocular) and renders t
 We initially built ORB-SLAM3 natively on macOS to keep the dev loop fast.
 
 ```bash
-# Clone our patched fork (already vendored under third_party/)
+# Clone my patched fork (already vendored under third_party/)
 git clone https://github.com/UZ-SLAMLab/ORB_SLAM3.git third_party/ORB_SLAM3
 cd third_party/ORB_SLAM3
 
@@ -266,7 +266,7 @@ if(NOT OpenCV_FOUND)
 endif()
 ```
 
-Whenever we edit anything under `Examples/Monocular/`, we rebuild:
+Whenever I edit anything under `Examples/Monocular/`, I rebuild:
 
 ```bash
 cd third_party/ORB_SLAM3/build
@@ -285,11 +285,11 @@ cd ../Examples/Monocular
   ../../../../data/data_odometry_gray/sequences/08
 ```
 
-> **Known monocular caveat.** `SLAM.SaveTrajectoryKITTI()` errors out with *"cannot be used for monocular"*. ORB-SLAM3 saves monocular trajectories in TUM format only, so we convert TUM → KITTI manually before feeding `evo`.
+> **Known monocular caveat.** `SLAM.SaveTrajectoryKITTI()` errors out with *"cannot be used for monocular"*. ORB-SLAM3 saves monocular trajectories in TUM format only, so I convert TUM → KITTI manually before feeding `evo`.
 
 ### 3.2 — Pangolin failure on Apple Silicon → Docker
 
-The native build crashed inside Pangolin with `NSInternalInconsistencyException` because macOS requires all UI calls on the main thread, while Pangolin's viewer thread is not the main thread under AppKit on Apple Silicon. To stabilise the environment, we containerised the entire toolchain.
+The native build crashed inside Pangolin with `NSInternalInconsistencyException` because macOS requires all UI calls on the main thread, while Pangolin's viewer thread is not the main thread under AppKit on Apple Silicon. To stabilise the environment, I containerised the entire toolchain.
 
 ![Pangolin NSInternalInconsistencyException on Apple Silicon](https://imgur.com/M4UxT8D.png)
 <!-- pictures/pangolin_issue.png -->
@@ -318,7 +318,7 @@ docker run -it --rm --platform linux/arm64 \
 
 ### 3.3 — Mounting ORB-SLAM3 as a volume (the everyday workflow)
 
-Once the base image exists, we keep the source tree on the host and bind-mount it into the container — so editing `mono_kitti.cc` or `MapDrawer.cc` only requires re-running `make`, never `docker build`.
+Once the base image exists, I keep the source tree on the host and bind-mount it into the container — so editing `mono_kitti.cc` or `MapDrawer.cc` only requires re-running `make`, never `docker build`.
 
 ```bash
 # Start (or restart) the dev container
@@ -358,9 +358,9 @@ LIBGL_ALWAYS_INDIRECT=1 ./mono_kitti ../../Vocabulary/ORBvoc.txt KITTI08.yaml \
   /data/data_odometry_gray/sequences/08 /data/cuboid_outputs_bytetrack
 ```
 
-The fourth argument is the **cuboid directory** consumed by our patched `mono_kitti.cc`. Per-frame predicted cuboids are written to `/data/predicted_cuboids/` for Stage 4 IoU evaluation.
+The fourth argument is the **cuboid directory** consumed by my patched `mono_kitti.cc`. Per-frame predicted cuboids are written to `/data/predicted_cuboids/` for Stage 4 IoU evaluation.
 
-#### What we changed in ORB-SLAM3
+#### What I changed in ORB-SLAM3
 
 Data flow of the integration: `mono_kitti → System → Viewer → MapDrawer / FrameDrawer`.
 
@@ -599,5 +599,5 @@ python3 utils/slam_integration/run_evaluation_pipeline.py ... --generate_report
 
 - **Monocular scale ambiguity** dominates the residual 61–64 m APE on KITTI 08 — stereo or visual-inertial extensions are the natural next step.
 - **Detector ceiling** — YOLOv8x cross-domain mAP50 of ~40 % caps cuboid recall; upgrading to YOLO26 (released Sep 2025) or fine-tuning on Adelaide-collected GT would lift Stage 2 quality.
-- **Cuboid optimisation** — we ship a simplified CubeSLAM-style reasoning module; integrating the full multi-view bundle adjustment from `Algorithm 2` (Yang & Scherer, 2019) into ORB-SLAM3's back-end is left as future work.
+- **Cuboid optimisation** — I ship a simplified CubeSLAM-style reasoning module; integrating the full multi-view bundle adjustment from `Algorithm 2` (Yang & Scherer, 2019) into ORB-SLAM3's back-end is left as future work.
 - **Adelaide quantitative metrics** — qualitative only for now; a labelled Adelaide tram benchmark would let us close the loop quantitatively.
