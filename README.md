@@ -11,7 +11,7 @@ The end-to-end pipeline follows four stages:
 1. **Stage 1 — Object Detection (YOLOv8).** Train and cross-evaluate YOLOv8n / YOLOv8x on **BDD100K** and **KITTI Object Detection** to obtain a robust detector that generalises across urban driving domains.
 2. **Stage 2 — Multi-Object Tracking & 3D Cuboid Generation.** Extract 2D bounding boxes on KITTI odometry sequence 08, associate them across frames with a simplified **ByteTrack** policy, and lift them to oriented **3D cuboids** using a CubeSLAM-style monocular reasoning module.
 3. **Stage 3 — ORB-SLAM3 Integration.** Inject the 3D cuboids into a modified **ORB-SLAM3** (monocular) running inside a Docker container, with live Pangolin visualisation forwarded to the host via XQuartz.
-4. **Stage 4 — Evaluation.** Quantitative trajectory metrics (**ATE / RPE** via `evo`) and 3D detection metrics (**3D IoU**, precision/recall/F1) on KITTI Sequence 08, plus a qualitative real-world deployment on **Adelaide tram-route footage** captured on an iPhone.
+4. **Stage 4 — Evaluation.** Quantitative trajectory metrics (**ATE / RPE** via `evo`) and 3D detection metrics (**3D IoU**, precision/recall/F1) on KITTI Sequence 08, plus a qualitative real-world deployment on **Adelaide street route footage** captured on an iPhone 13.
 
 This repository contains the code, configs, notebooks, Docker setup, and supporting materials for all four stages — together with the trained YOLOv8 weights, processed datasets, and evaluation artefacts that back the accompanying thesis.
 
@@ -526,9 +526,9 @@ python3 utils/slam_integration/calculate_reduction.py \
 
 ByteTrack integration consolidates **12 214 frame-level detections into 2 298 unique tracked objects — an 81.2 % reduction in redundant map entries**, dramatically improving point-cloud cleanliness without sacrificing trajectory accuracy.
 
-### 4.3 — Qualitative deployment on Adelaide tram footage
+### 4.3 — Qualitative deployment on Adelaide street footage
 
-We captured raw iPhone 13 video on Adelaide tram corridors (`data/adelaide.mp4`, `data/adelaide_2.mp4`) and turned it into a KITTI-style sequence:
+We captured raw iPhone 13 video on Adelaide corridors (`data/adelaide.mp4`, `data/adelaide_2.mp4`) and turned it into a KITTI-style sequence:
 
 ```bash
 python3 utils/slam_integration/preprocess_iphone_video.py ./data/adelaide.mp4 \
@@ -556,9 +556,9 @@ LIBGL_ALWAYS_INDIRECT=1 ./mono_kitti ../../Vocabulary/ORBvoc.txt Adelaide.yaml \
   /data/adelaide_sequence_2 /data/cuboid_outputs_adelaide_2
 ```
 
-The system successfully tracks trams, cars, and cyclists with persistent IDs across frames; minor false positives (e.g. Adelaide Metro bus misclassified as a truck, traffic-sign pole as a cyclist) are still excluded from the static map and therefore do not corrupt the point cloud.
+The system successfully tracks buses, cars, and cyclists with persistent IDs across frames; minor false positives (e.g. Adelaide Metro bus misclassified as a truck, traffic-sign pole as a cyclist) are still excluded from the static map and therefore do not corrupt the point cloud.
 
-![Adelaide qualitative result — busy tram corridor](https://imgur.com/InC22FJ.png)
+![Adelaide qualitative result — busy corridor](https://imgur.com/InC22FJ.png)
 <!-- pictures/orbslam3_running/adelaide_cub_2.png -->
 
 ---
